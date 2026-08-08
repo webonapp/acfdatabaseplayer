@@ -168,3 +168,9 @@ body.auth-locked{overflow:hidden}
   white-space:nowrap;
 }
 .card-tab-state{margin-left:auto}
+
+
+/* ===== V15: SQUADRA EDITABILE ===== */
+#teamNameEdit{
+  text-transform:uppercase;
+}

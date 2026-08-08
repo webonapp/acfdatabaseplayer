@@ -157,7 +157,7 @@ async function loadAll(){if(!db||!currentSession)return;const{data:t,error:te}=a
 function preserve(id,a,l){const e=$(id),v=e.value;e.innerHTML=`<option value="">${l}</option>`+a.map(x=>`<option>${esc(x)}</option>`).join('');e.value=v}
 function populateFilters(){
  $('fTeam').innerHTML='<option value="">Tutte</option>'+teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
- $('teamId').innerHTML=teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
+ $('teamsDatalist').innerHTML=teams.map(t=>`<option value="${esc(t.name)}"></option>`).join('');
  populateCountrySelects();
  preserve('fYear',[...new Set(players.map(p=>p.birth_year).filter(Boolean))].sort((a,b)=>b-a),'Tutti');
 }
@@ -172,253 +172,57 @@ function showView(n){document.querySelectorAll('.view').forEach(v=>v.classList.r
 function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));['importCardBtn','playersImportBtn','settingsImportBtn'].forEach(id=>$(id).onclick=()=>{resetImport();openModal('importModal')});$('manualTeamBtn').onclick=()=>openModal('teamModal');
 $('teamForm').onsubmit=async e=>{e.preventDefault();if(!db)return;const{error}=await db.from('teams').insert({name:$('teamName').value.trim(),country:$('teamCountry').value.trim(),competition:$('teamCompetition').value.trim()});if(error)return alert(error.message);$('teamForm').reset();closeModal('teamModal');await loadAll()};
 function normalizeRole(v){const n=norm(v);if(n.includes('dif')||n.includes('terz')||n.includes('bracc'))return'DIFENSORE';if(n.includes('centr')||n.includes('mezz')||n.includes('med')||n.includes('trequart'))return'CENTROCAMPISTA';return'ATTACCANTE'}
-window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamId').value=p.team_id||'';$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=p.foot==='SX'?'SX':'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=resolveNationality(p.nationality||'');$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{e.preventDefault();const p={first_name:upper($('firstName').value),last_name:upper($('lastName').value),team_id:$('teamId').value,number:$('number').value?+$('number').value:null,role:upper($('role').value),position:upper($('position').value),height:$('height').value?+$('height').value:null,foot:$('foot').value,birth_year:$('birthYear').value?+$('birthYear').value:null,nationality:resolveNationality($('nationality').value),strengths:$('strengths').value.split(',').map(upper).filter(Boolean),weaknesses:$('weaknesses').value.split(',').map(upper).filter(Boolean),notes:upper($('notes').value),updated_at:new Date().toISOString()};const{error}=await db.from('players').update(p).eq('id',$('playerId').value);if(error)return alert(error.message);closeModal('playerModal');await loadAll()};window.deletePlayer=async id=>{if(!confirm('Eliminare questo giocatore?'))return;const{error}=await db.from('players').delete().eq('id',id);if(error)return alert(error.message);await loadAll()};window.openTeamPlayers=id=>{showView('players');const t=teams.find(x=>String(x.id)===String(id));if(t)$('playersSearch').value=t.name;renderPlayersPage()};
-$('cardFile').onchange=e=>selectFiles(Array.from(e.target.files||[]));
-$('dropzone').ondragover=e=>e.preventDefault();
-$('dropzone').ondrop=e=>{e.preventDefault();selectFiles(Array.from(e.dataTransfer.files||[]))};
+window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamNameEdit').value=upper(p.teams?.name||'');$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=p.foot==='SX'?'SX':'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=resolveNationality(p.nationality||'');$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{
+  e.preventDefault();
+  if(!db)return alert('SUPABASE NON CONFIGURATO.');
 
-function selectFiles(files){
-  const good=(files||[]).filter(f=>f&&f.type&&f.type.startsWith('image/'));
-  if(!good.length)return;
-  selectedFiles=good;
-  batchMode=good.length>1;
-  batchResults=[];
-  currentBatchIndex=0;
-
-  if(batchMode){
-    selectedFile=good[0];
-    $('cardPreview').src=URL.createObjectURL(selectedFile);
-    $('cardPreview').classList.remove('hidden');
-    $('processCardBtn').disabled=false;
-    $('processCardBtn').textContent=`ELABORA ${good.length} CARD`;
-    renderBatchQueueSimple();
-  }else{
-    selectFile(good[0]);
-  }
-}
-
-function renderBatchQueueSimple(){
-  if(!$('batchQueue'))return;
-  $('batchQueue').classList.toggle('hidden',!batchMode);
-  if(!batchMode)return;
-  $('batchCounter').textContent=`${selectedFiles.length} CARD`;
-  $('batchList').innerHTML=selectedFiles.map((f,i)=>`
-    <div class="batch-item ${i===currentBatchIndex?'active':''}">
-      <img class="batch-thumb" src="${URL.createObjectURL(f)}" alt="">
-      <div class="batch-name">${esc(f.name)}</div>
-      <div class="batch-status">${batchResults[i]?.status==='done'?'LETTA':batchResults[i]?.status==='error'?'ERRORE':'PRONTA'}</div>
-    </div>`).join('');
-}
-
-function captureImportForm(){
-  return {
-    first:upper($('iFirstName').value),
-    last:upper($('iLastName').value),
-    team:upper($('iTeam').value),
-    number:$('iNumber').value,
-    role:upper($('iRole').value),
-    position:upper($('iPosition').value),
-    height:$('iHeight').value,
-    foot:upper($('iFoot').value),
-    year:$('iBirthYear').value,
-    nationality:resolveNationality($('iNationality').value),
-    strengths:$('iStrengths').value.split(',').map(upper).filter(Boolean),
-    weaknesses:$('iWeaknesses').value.split(',').map(upper).filter(Boolean)
-  };
-}
-
-function saveCurrentReviewToBatch(){
-  if(!batchMode||!batchResults[currentBatchIndex])return;
-  batchResults[currentBatchIndex].parsed=captureImportForm();
-}
-
-function renderCardTabs(){
-  if(!$('cardTabsWrap')||!$('cardTabs'))return;
-  $('cardTabsWrap').classList.toggle('hidden',!batchMode);
-  if(!batchMode)return;
-  $('cardTabs').innerHTML=batchResults.map((item,i)=>{
-    const p=item?.parsed||{};
-    const label=((p.last||'')+' '+(p.first||'')).trim()||`CARD ${i+1}`;
-    const cls=item?.status==='archived'?'archived':item?.status==='error'?'error':'';
-    const state=item?.status==='archived'?'✓':item?.status==='error'?'!':'';
-    return `<button type="button" class="card-tab ${i===currentBatchIndex?'active':''} ${cls}" data-card-tab="${i}">
-      <span class="card-tab-number">${i+1}</span>
-      <span class="card-tab-name">${esc(label)}</span>
-      <span class="card-tab-state">${state}</span>
-    </button>`;
-  }).join('');
-  document.querySelectorAll('[data-card-tab]').forEach(tab=>{
-    tab.onclick=()=>{
-      saveCurrentReviewToBatch();
-      const i=Number(tab.dataset.cardTab);
-      if(batchResults[i]?.parsed){
-        currentBatchIndex=i;
-        fillImport(batchResults[i].parsed);
-        renderCardTabs();
-      }
-    };
-  });
-}
-
-function showBatchReview(i){
-  if(!batchMode||!batchResults[i]?.parsed)return;
-  currentBatchIndex=i;
-  fillImport(batchResults[i].parsed);
-  renderCardTabs();
-  renderBatchQueueSimple();
-}
-
-async function readCardFileExact(file,index,total){
-  let worker=null;
   try{
-    const img=await loadImage(file);
-    worker=await Tesseract.createWorker('eng',1,{
-      logger:m=>{
-        if(m.status==='recognizing text'){
-          const pct=Math.round((m.progress||0)*100);
-          $('progressText').textContent=`CARD ${index+1}/${total} · LETTURA ${pct}%`;
-          $('progressFill').style.width=Math.round(((index+(m.progress||0))/total)*100)+'%';
-        }
-      }
-    });
-    const keys=['role','first','last','team','number','height','foot','year','strengths','weaknesses'];
-    const raw={};
-    for(const key of keys) raw[key]=await readRegion(worker,img,key);
+    await ensureWriteSession();
 
-    return {
-      first:upper(cleanFieldText(raw.first)),
-      last:upper(cleanFieldText(raw.last)),
-      team:upper(cleanFieldText(raw.team)),
-      number:cleanDigits(raw.number).slice(0,2),
-      role:upper(normalizeCardRole(raw.role)),
-      position:'',
-      height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
-      foot:/SX/i.test(raw.foot)?'SX':'DX',
-      year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
-      nationality:resolveNationality(detectFlagNationality(img)),
-      strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).map(upper).filter(Boolean),
-      weaknesses:cleanMulti(raw.weaknesses).split('\n').map(cleanFieldText).map(upper).filter(Boolean)
-    };
-  }finally{
-    if(worker)try{await worker.terminate()}catch(_){}
-  }
-}
+    const typedTeamName=upper($('teamNameEdit').value);
+    if(!typedTeamName)throw new Error('LA SQUADRA È OBBLIGATORIA.');
 
-async function processBatchCards(){
-  if(!selectedFiles.length)return;
-  $('ocrProgress').classList.remove('hidden');
-  $('processCardBtn').disabled=true;
-  batchResults=new Array(selectedFiles.length);
+    let team=teams.find(t=>norm(t.name)===norm(typedTeamName));
 
-  for(let i=0;i<selectedFiles.length;i++){
-    currentBatchIndex=i;
-    batchResults[i]={status:'processing',parsed:null};
-    renderBatchQueueSimple();
-    try{
-      const parsed=await readCardFileExact(selectedFiles[i],i,selectedFiles.length);
-      batchResults[i]={status:'done',parsed};
-    }catch(err){
-      console.error(err);
-      batchResults[i]={status:'error',parsed:null,error:err?.message||String(err)};
+    // Se la squadra digitata non esiste, la crea automaticamente.
+    if(!team){
+      const {data,error}=await db
+        .from('teams')
+        .insert({name:typedTeamName,country:'',competition:''})
+        .select()
+        .single();
+
+      if(error)throw new Error('ERRORE CREAZIONE SQUADRA: '+error.message);
+      team=data;
+      teams.push(team);
     }
-  }
 
-  const first=batchResults.findIndex(x=>x?.parsed);
-  $('processCardBtn').disabled=false;
-  if(first<0){
-    alert('NON È STATO POSSIBILE LEGGERE NESSUNA CARD.');
-    return;
-  }
-  $('uploadStage').classList.add('hidden');
-  $('importReview').classList.remove('hidden');
-  showBatchReview(first);
-}
+    const payload={
+      first_name:upper($('firstName').value),
+      last_name:upper($('lastName').value),
+      team_id:team.id,
+      number:$('number').value?Number($('number').value):null,
+      role:upper($('role').value),
+      position:upper($('position').value),
+      height:$('height').value?Number($('height').value):null,
+      foot:upper($('foot').value),
+      birth_year:$('birthYear').value?Number($('birthYear').value):null,
+      nationality:resolveNationality($('nationality').value),
+      strengths:$('strengths').value.split(',').map(upper).filter(Boolean),
+      weaknesses:$('weaknesses').value.split(',').map(upper).filter(Boolean),
+      notes:upper($('notes').value),
+      updated_at:new Date().toISOString()
+    };
 
-async function archiveParsedPlayer(parsed){
-  await ensureWriteSession();
-  const teamName=upper(parsed.team);
-  if(!teamName)throw new Error('LA SQUADRA È OBBLIGATORIA.');
-
-  let team=teams.find(t=>norm(t.name)===norm(teamName));
-  if(!team){
-    const {data,error}=await db.from('teams').insert({name:teamName,country:'',competition:''}).select().single();
+    const {error}=await db.from('players').update(payload).eq('id',$('playerId').value);
     if(error)throw error;
-    team=data;
-    teams.push(team);
+
+    closeModal('playerModal');
+    await loadAll();
+  }catch(err){
+    console.error(err);
+    alert(err?.message||'ERRORE DURANTE IL SALVATAGGIO.');
   }
-
-  const payload={
-    first_name:upper(parsed.first),
-    last_name:upper(parsed.last),
-    team_id:team.id,
-    number:parsed.number!==''?Number(parsed.number):null,
-    role:upper(parsed.role||'ATTACCANTE'),
-    position:upper(parsed.position),
-    height:parsed.height!==''?Number(parsed.height):null,
-    foot:upper(parsed.foot||'DX'),
-    birth_year:parsed.year!==''?Number(parsed.year):null,
-    nationality:resolveNationality(parsed.nationality),
-    strengths:(parsed.strengths||[]).map(upper),
-    weaknesses:(parsed.weaknesses||[]).map(upper),
-    notes:'IMPORTATO AUTOMATICAMENTE DA CARD',
-    updated_at:new Date().toISOString()
-  };
-  if(!payload.first_name||!payload.last_name)throw new Error('NOME E COGNOME SONO OBBLIGATORI.');
-  const {data,error}=await db.from('players').insert(payload).select('*, teams(name)').single();
-  if(error)throw error;
-  return data;
-}
-
-function selectFile(f){
- if(!f||!f.type.startsWith('image/'))return;
- selectedFile=f;
- $('cardPreview').src=URL.createObjectURL(f);
- $('cardPreview').classList.remove('hidden');
- $('processCardBtn').disabled=false;
-}
-function resetImport(){
- selectedFiles=[];batchResults=[];currentBatchIndex=0;batchMode=false;
- if($('cardTabsWrap'))$('cardTabsWrap').classList.add('hidden');
- selectedFiles=[];batchResults=[];currentBatchIndex=0;batchMode=false;
- if($('batchQueue'))$('batchQueue').classList.add('hidden');
- 
- 
- if($('archivePlayerBtn'))$('archivePlayerBtn').textContent='ARCHIVIA GIOCATORE';selectedFile=null;$('cardFile').value='';$('cardPreview').classList.add('hidden');$('processCardBtn').disabled=true;$('ocrProgress').classList.add('hidden');$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden');$('progressFill').style.width='0%'}
-$('restartImportBtn').onclick=()=>{$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden')};
-$('processCardBtn').onclick=processCard;
-
-async function importDashboardFiles(files){
- const good=(files||[]).filter(f=>f&&f.type&&f.type.startsWith('image/'));
- if(!good.length)return;
- resetImport();openModal('importModal');selectFiles(good);
- await new Promise(r=>setTimeout(r,80));processCard();
-}
-const dashboardDrop=$('dashboardImportBtn');
-dashboardDrop.addEventListener('dragenter',e=>{e.preventDefault();dashboardDrop.classList.add('drag-active')});
-dashboardDrop.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';dashboardDrop.classList.add('drag-active')});
-dashboardDrop.addEventListener('dragleave',()=>dashboardDrop.classList.remove('drag-active'));
-dashboardDrop.addEventListener('drop',e=>{e.preventDefault();dashboardDrop.classList.remove('drag-active');importDashboardFiles(Array.from(e.dataTransfer.files||[]))});
-dashboardDrop.addEventListener('click',()=>{const input=document.createElement('input');input.type='file';input.accept='image/*';input.onchange=()=>importDashboardFile(input.files?.[0]);input.click()});
-
-
-/*
-  CARD READER V3
-  La card ha un layout fisso. Non proviamo più a capire il testo come una frase intera:
-  leggiamo ogni area separatamente, esattamente dove il dato è stampato.
-*/
-const CARD_REGIONS={
- // Coordinate calibrate sul template 2048×1149, espresse in proporzione.
- role:       {x:.381,y:.017,w:.259,h:.083,psm:'7',mode:'dark'},
- first:      {x:.032,y:.366,w:.188,h:.048,psm:'7',mode:'white'},
- last:       {x:.032,y:.405,w:.188,h:.057,psm:'7',mode:'white'},
- team:       {x:.015,y:.457,w:.215,h:.052,psm:'7',mode:'white'},
- number:     {x:.015,y:.513,w:.215,h:.209,psm:'7',mode:'white',digits:true},
- flag:       {x:.065,y:.720,w:.145,h:.245},
- height:     {x:.796,y:.061,w:.185,h:.165,psm:'6',mode:'dark',digits:true},
- foot:       {x:.800,y:.313,w:.176,h:.209,psm:'6',mode:'blue'},
- year:       {x:.781,y:.714,w:.205,h:.226,psm:'6',mode:'dark',digits:true},
- strengths:  {x:.317,y:.566,w:.391,h:.244,psm:'6',mode:'green'},
- weaknesses: {x:.305,y:.780,w:.430,h:.180,psm:'6',mode:'red'}
 };
 function loadImage(file){return new Promise((ok,ko)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=ko;im.src=URL.createObjectURL(file)})}
 function cropCanvas(img,r,scale=2.2){

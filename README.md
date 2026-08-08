@@ -78,3 +78,9 @@ In Authentication:
 - Ogni card è gestita in una tab stile Chrome.
 - Ogni giocatore viene archiviato singolarmente, con possibilità di modificare la card prima di salvarla.
 - Il lettore OCR e le regioni della card restano invariati rispetto alla versione funzionante.
+
+
+## V15
+- Nel form MODIFICA GIOCATORE il campo SQUADRA non è più un semplice menu a tendina.
+- Ora puoi scrivere manualmente il nome della squadra oppure selezionare uno dei suggerimenti esistenti.
+- Se digiti una squadra nuova, viene creata automaticamente nel database e assegnata al giocatore.
