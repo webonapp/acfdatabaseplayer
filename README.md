@@ -92,3 +92,11 @@ In Authentication:
 - Modificabili nazione e competizione.
 - Possibilità di eliminare una squadra intera.
 - Se contiene giocatori, viene mostrato un avviso e, dopo conferma, vengono eliminati anche i giocatori associati.
+
+
+## V17 - Login fix
+- Corretto un errore di sintassi JavaScript che bloccava l'intero app.js e rendeva inattivi ACCEDI e MOSTRA.
+- Ripristinato il funzionamento del login email/password.
+- Ripristinato il pulsante MOSTRA / NASCONDI password.
+- Rimossa la frase sotto LOGIN richiesta dall'utente.
+- Controllo sintattico JavaScript eseguito prima della creazione dello ZIP.

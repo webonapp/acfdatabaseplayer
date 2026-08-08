@@ -166,8 +166,42 @@ function row(p){return`<tr><td><div class="playercell"><div class="pface">${esc(
 function renderDashboard(){$('totalPlayers').textContent=players.length;$('totalTeams').textContent=teams.length;$('totalNations').textContent=new Set(players.map(p=>p.nationality).filter(Boolean)).size;$('totalAnalysis').textContent=players.length;const c={};players.forEach(p=>c[p.team_id]=(c[p.team_id]||0)+1);$('tbody').innerHTML=players.filter(matches).slice(0,12).map(row).join('')||'<tr><td colspan="8" style="text-align:center;padding:28px;color:#777">Nessun giocatore trovato</td></tr>'}
 function sortedPlayers(){const q=norm($('playersSearch')?.value||'');let out=players.filter(p=>!q||norm([p.first_name,p.last_name,p.teams?.name,p.role,p.nationality,...tags(p.strengths),...tags(p.weaknesses)].join(' ')).includes(q)),m=$('playerSort')?.value||'alphabetical',rr={DIFENSORE:1,CENTROCAMPISTA:2,ATTACCANTE:3};out.sort((a,b)=>m==='age'?age(a.birth_year)-age(b.birth_year)||a.last_name.localeCompare(b.last_name):m==='foot'?String(a.foot).localeCompare(String(b.foot))||a.last_name.localeCompare(b.last_name):m==='role'?(rr[String(a.role).toUpperCase()]||9)-(rr[String(b.role).toUpperCase()]||9)||a.last_name.localeCompare(b.last_name):m==='nationality'?String(a.nationality||'').localeCompare(String(b.nationality||''))||a.last_name.localeCompare(b.last_name):`${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));return out}
 function renderPlayersPage(){$('playerGrid').innerHTML=sortedPlayers().map(p=>`<article class="player-card"><div class="player-card-head"><div class="pface">${esc(initials(p))}</div><div><h3>${esc(p.last_name)} ${esc(p.first_name)}</h3><div class="sub">${esc(p.teams?.name||'-')} · ${esc(p.role||'-')} · ${age(p.birth_year)} anni · ${esc(p.foot||'-')}</div></div></div><div class="chips">${tags(p.strengths).slice(0,4).map(s=>`<span class="chip">${esc(s)}</span>`).join('')}</div><div class="player-card-actions"><button class="secondary" onclick="editPlayer('${p.id}')">MODIFICA</button><button class="secondary" onclick="deletePlayer('${p.id}')">ELIMINA</button></div></article>`).join('')||'<div style="padding:30px;color:#777">Nessun giocatore.</div>'}
-function renderTeamsPage(){const c={};players.forEach(p=>c[p.team_id]=(c[p.team_id]||0)+1);$('teamsGrid').innerHTML=teams.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''))).map(t=>`<article class="team-card"><h3>${esc(t.name)}</h3><p>${esc(t.country||'')} ${t.competition?'· '+esc(t.competition):''}</p><div class="bigstat">${c[t.id]||0}</div><p>GIOCATORI ARCHIVIATI</p><div class="team-card-actions"><button class="secondary" onclick="openTeamPlayers('${t.id}')">VEDI GIOCATORI</button><button class="secondary" onclick="editTeam('${t.id}')">MODIFICA</button><button class="danger-btn" onclick="deleteTeam('${t.id}')">ELIMINA SQUADRA</button></div></article>`).join('')};players.forEach(p=>c[p.team_id]=(c[p.team_id]||0)+1);$('teamsGrid').innerHTML=teams.map(t=>`<article class="team-card"><h3>${esc(t.name)}</h3><p>${esc(t.country||'')} ${t.competition?'· '+esc(t.competition):''}</p><div class="bigstat">${c[t.id]||0}</div><p>giocatori archiviati</p><button class="secondary" onclick="openTeamPlayers('${t.id}')">VEDI GIOCATORI</button></article>`).join('')}
-function renderStats(){const r={DIFENSORE:0,CENTROCAMPISTA:0,ATTACCANTE:0};players.forEach(p=>{const x=String(p.role||'').toUpperCase();if(x in r)r[x]++});$('statsGrid').innerHTML=[['GIOCATORI',players.length],['SQUADRE',teams.length],['NAZIONALITÀ',new Set(players.map(p=>p.nationality).filter(Boolean)).size],['DIFENSORI',r.DIFENSORE],['CENTROCAMPISTI',r.CENTROCAMPISTA],['ATTACCANTI',r.ATTACCANTE]].map(([l,v])=>`<div class="stat-card"><h3>${l}</h3><div class="bigstat">${v}</div></div>`).join('')}
+function renderTeamsPage(){
+  const counts={};
+  players.forEach(p=>counts[p.team_id]=(counts[p.team_id]||0)+1);
+
+  $('teamsGrid').innerHTML=teams
+    .slice()
+    .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')))
+    .map(t=>`<article class="team-card">
+      <h3>${esc(t.name)}</h3>
+      <p>${esc(t.country||'')} ${t.competition?'· '+esc(t.competition):''}</p>
+      <div class="bigstat">${counts[t.id]||0}</div>
+      <p>GIOCATORI ARCHIVIATI</p>
+      <div class="team-card-actions">
+        <button class="secondary" onclick="openTeamPlayers('${t.id}')">VEDI GIOCATORI</button>
+        <button class="secondary" onclick="editTeam('${t.id}')">MODIFICA</button>
+        <button class="danger-btn" onclick="deleteTeam('${t.id}')">ELIMINA SQUADRA</button>
+      </div>
+    </article>`).join('');
+}
+
+function renderStats(){
+  const roles={DIFENSORE:0,CENTROCAMPISTA:0,ATTACCANTE:0};
+  players.forEach(p=>{
+    const r=String(p.role||'').toUpperCase();
+    if(r in roles)roles[r]++;
+  });
+  $('statsGrid').innerHTML=[
+    ['GIOCATORI',players.length],
+    ['SQUADRE',teams.length],
+    ['NAZIONALITÀ',new Set(players.map(p=>p.nationality).filter(Boolean)).size],
+    ['DIFENSORI',roles.DIFENSORE],
+    ['CENTROCAMPISTI',roles.CENTROCAMPISTA],
+    ['ATTACCANTI',roles.ATTACCANTE]
+  ].map(([l,v])=>`<div class="stat-card"><h3>${l}</h3><div class="bigstat">${v}</div></div>`).join('');
+}
+
 function showView(n){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+n)?.classList.add('active');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===n));if(n==='players')renderPlayersPage();if(n==='teams')renderTeamsPage();if(n==='stats')renderStats();$('sidebar').classList.remove('mobile-open');scrollTo({top:0,behavior:'smooth'})}document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showView(b.dataset.go));['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).addEventListener(id==='q'?'input':'change',renderDashboard));$('searchBtn').onclick=renderDashboard;$('filterBtn').onclick=renderDashboard;$('resetBtn').onclick=()=>{['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).value='');renderDashboard()};$('playersSearch').oninput=renderPlayersPage;$('playerSort').onchange=renderPlayersPage;
 function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));['importCardBtn','playersImportBtn','settingsImportBtn'].forEach(id=>$(id).onclick=()=>{resetImport();openModal('importModal')});$('manualTeamBtn').onclick=()=>openNewTeamModal();
 $('teamForm').onsubmit=async e=>{e.preventDefault();if(!db)return alert('SUPABASE NON CONFIGURATO.');try{await ensureWriteSession();const id=$('teamEditId').value;const payload={name:upper($('teamName').value),country:upper($('teamCountry').value),competition:upper($('teamCompetition').value)};if(!payload.name)throw new Error('IL NOME DELLA SQUADRA È OBBLIGATORIO.');const duplicate=teams.find(t=>norm(t.name)===norm(payload.name)&&String(t.id)!==String(id||''));if(duplicate)throw new Error('ESISTE GIÀ UNA SQUADRA CON QUESTO NOME.');if(id){const{error}=await db.from('teams').update(payload).eq('id',id);if(error)throw error}else{const{error}=await db.from('teams').insert(payload);if(error)throw error}$('teamForm').reset();$('teamEditId').value='';closeModal('teamModal');await loadAll();showView('teams')}catch(err){console.error(err);alert(err?.message||'ERRORE DURANTE IL SALVATAGGIO DELLA SQUADRA.')}};
@@ -463,39 +497,9 @@ $('clearBatchBtn')?.addEventListener('click',resetImport);
 $('importReview').addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();
  if(batchMode){saveCurrentReviewToBatch();}await archiveImportedPlayer();});populateCountrySelects();
 
-$('loginForm')?.addEventListener('submit',async e=>{
-  e.preventDefault();
-  e.stopPropagation();
-
-  const btn=$('loginBtn');
-  const email=$('loginEmail')?.value?.trim()||'';
-  const password=$('loginPassword')?.value||'';
-
-  setLoginError('');
-  if(btn){btn.disabled=true;btn.textContent='ACCESSO...';}
-
-  try{
-    const session=await loginWithPassword(email,password);
-    hideLogin(session);
-    if($('loginPassword')) $('loginPassword').value='';
-    await loadAll();
-  }catch(err){
-    console.error('Login error:',err);
-    showLogin(err?.message||'Impossibile effettuare l’accesso.');
-  }finally{
-    if(btn){btn.disabled=false;btn.textContent='ACCEDI';}
-  }
-});
-$('togglePassword')?.addEventListener('click',()=>{
-  const input=$('loginPassword');
-  if(!input)return;
-  const visible=input.type==='text';
-  input.type=visible?'password':'text';
-  $('togglePassword').textContent=visible?'MOSTRA':'NASCONDI';
-});
 
 
-$('logoutBtn')?.addEventListener('click',logout);
+
 
 document.addEventListener('input',e=>{
   const el=e.target;
@@ -507,4 +511,51 @@ document.addEventListener('input',e=>{
   try{el.setSelectionRange(a,b)}catch(_){}
 });
 
+
+const loginFormEl=$('loginForm');
+if(loginFormEl){
+  loginFormEl.addEventListener('submit',async e=>{
+    e.preventDefault();
+    e.stopPropagation();
+
+    const btn=$('loginBtn');
+    const email=String($('loginEmail')?.value||'').trim();
+    const password=String($('loginPassword')?.value||'');
+
+    setLoginError('');
+    if(btn){
+      btn.disabled=true;
+      btn.textContent='ACCESSO...';
+    }
+
+    try{
+      const session=await loginWithPassword(email,password);
+      hideLogin(session);
+      if($('loginPassword'))$('loginPassword').value='';
+      await loadAll();
+    }catch(err){
+      console.error('LOGIN ERROR',err);
+      showLogin(err?.message||'IMPOSSIBILE EFFETTUARE L’ACCESSO.');
+    }finally{
+      if(btn){
+        btn.disabled=false;
+        btn.textContent='ACCEDI';
+      }
+    }
+  });
+}
+
+const togglePasswordEl=$('togglePassword');
+if(togglePasswordEl){
+  togglePasswordEl.addEventListener('click',e=>{
+    e.preventDefault();
+    const input=$('loginPassword');
+    if(!input)return;
+    const show=input.type==='password';
+    input.type=show?'text':'password';
+    togglePasswordEl.textContent=show?'NASCONDI':'MOSTRA';
+  });
+}
+
+$('logoutBtn')?.addEventListener('click',logout);
 initializeAuth().catch(e=>{console.error(e);showLogin(e.message)});
