@@ -192,3 +192,14 @@ Correzioni:
 - La bandiera compare anche a sinistra del campo una volta scelta la nazione.
 - Il database continua a salvare solo il nome pulito della nazionalità, senza emoji.
 - Ricerca nazionalità aggiunta anche al filtro Dashboard.
+
+
+## V26 - Secondo layout card
+- Supportato il nuovo template con pannello sinistro giallo.
+- Nel nuovo template viene letto il COGNOME grande sotto la foto.
+- NOME, SQUADRA e NUMERO restano vuoti perché non sono presenti sulla card e possono essere inseriti manualmente prima dell'archiviazione.
+- PIEDE: `DESTRO` = DX, `SINISTRO` = SX.
+- Il template storico DX/SX continua a funzionare.
+- Ruolo letto da DIFENSORE / CENTROCAMPISTA / ATTACCANTE e non viene più forzato su ATTACCANTE se il testo non è leggibile.
+- Riconoscimento bandiere completamente potenziato, con pattern specifici per Scozia, Germania, Danimarca, Inghilterra, Francia, Italia, Paesi Bassi, Belgio, Spagna, Brasile e Argentina.
+- OCR multi-card mantenuto.
