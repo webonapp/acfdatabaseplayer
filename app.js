@@ -1213,7 +1213,7 @@ async function archiveParsedPlayer(parsed){
     nationality:resolveNationality(parsed.nationality),
     strengths:(parsed.strengths||[]).map(upper),
     weaknesses:(parsed.weaknesses||[]).map(upper),
-    notes:'IMPORTATO AUTOMATICAMENTE DA CARD',
+    notes:'',
     updated_at:new Date().toISOString()
   };
 

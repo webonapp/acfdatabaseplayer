@@ -257,3 +257,9 @@ Modifiche:
 - L'OCR resta solo come fallback.
 - Rimossi tutti i default automatici che trasformavano un valore non letto in DX.
 - Se il piede non è riconoscibile con sicurezza, resta vuoto invece di essere classificato erroneamente.
+
+
+## V30 - Nessuna nota automatica
+- Rimossa completamente la nota automatica "IMPORTATO AUTOMATICAMENTE DA CARD".
+- I nuovi giocatori importati dalle card vengono salvati con il campo NOTE vuoto.
+- Il campo NOTE resta comunque disponibile per inserimenti manuali.
