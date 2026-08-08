@@ -1,0 +1,9 @@
+{
+  "name": "Player Analysis Database",
+  "short_name": "Player DB",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f7f7f9",
+  "theme_color": "#351463",
+  "icons": []
+}
