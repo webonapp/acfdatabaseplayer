@@ -203,3 +203,16 @@ Correzioni:
 - Ruolo letto da DIFENSORE / CENTROCAMPISTA / ATTACCANTE e non viene più forzato su ATTACCANTE se il testo non è leggibile.
 - Riconoscimento bandiere completamente potenziato, con pattern specifici per Scozia, Germania, Danimarca, Inghilterra, Francia, Italia, Paesi Bassi, Belgio, Spagna, Brasile e Argentina.
 - OCR multi-card mantenuto.
+
+
+## V27 - Fix lettura template giallo
+- Corrette le coordinate reali del secondo template 2048×1152.
+- PIEDE: la zona ora comprende realmente la scritta DESTRO / SINISTRO.
+- DESTRO = DX, SINISTRO = SX.
+- Rimosso il default automatico DX: se il piede non è leggibile il campo resta vuoto.
+- Migliorati i punti di forza e punti deboli con crop più ampio e soglie colore meno aggressive.
+- Migliorato fortemente il riconoscimento bandiera.
+- Il crop della bandiera gialla è stato ristretto alla sola bandiera circolare, evitando lo sfondo giallo.
+- Pattern specifici ottimizzati per Germania e Scozia sulle card fornite.
+- Se la nazionalità non è sufficientemente sicura, resta vuota invece di assegnarne una errata.
+- Il template storico resta supportato.
