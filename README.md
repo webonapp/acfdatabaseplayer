@@ -359,3 +359,57 @@ NAZIONALITÀ
   Qatar e Israele, oltre alle nazioni già presenti.
 - Riconoscimento basato su struttura spaziale, bande, colori centrali e angoli.
 - Confidence gate: in caso di dubbio il campo resta vuoto invece di assegnare una bandiera errata.
+
+
+## V34 - Due tipologie card, riconoscimento strutturale
+
+IMPORTANTE
+- Il colore della fascia laterale NON viene più usato per capire il tipo di card.
+- Può essere rosso, nero, blu, giallo, viola o qualsiasi colore della squadra.
+
+TIPO 1 - senza nome e squadra
+- cognome: area dedicata
+- numero: area dedicata
+- nazione: cerchio bandiera
+- ruolo: box superiore
+- altezza: box destro superiore
+- piede: box destro centrale
+- età/anno: box destro inferiore
+- punti di forza/deboli invariati
+
+TIPO 2 - con nome e squadra
+- nome
+- cognome
+- squadra sotto il cognome
+- numero
+- nazione
+- ruolo
+- altezza
+- piede
+- età/anno
+- punti di forza/deboli invariati
+
+RICONOSCIMENTO TIPO
+- Il lettore controlla il contenuto della riga SQUADRA.
+- Se trova una vera riga testuale di squadra, riconosce TIPO 2.
+- Se la riga squadra è vuota, riconosce TIPO 1.
+- Viene usata anche evidenza da nome/cognome per evitare falsi positivi.
+
+TESTO SU FASCIA COLORATA
+- Nuovo preprocessing adattivo con soglia Otsu.
+- Legge sia testo chiaro su fondo scuro sia testo scuro su fondo chiaro.
+- Il colore della squadra non influenza la lettura.
+
+PIEDE
+- Un'unica regola per entrambe le tipologie.
+- All'interno del box PIEDE:
+  BLU/AZZURRO dominante = DX
+  GIALLO/ORO dominante = SX
+- Nessun OCR e nessun default automatico.
+
+ETÀ / ANNO
+- Legge il box verde e confronta età e anno di nascita.
+- Se disponibile solo l'età, ricava l'anno usando la convenzione del 1 marzo.
+
+NAZIONALITÀ
+- Il classificatore esteso della V33 viene mantenuto.

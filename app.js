@@ -1881,10 +1881,392 @@ function detectFlagNationalityV31(img){
   return bestName;
 }
 
+
+/* ===== V34: DUE TIPOLOGIE CARD, INDIPENDENTI DAL COLORE LATERALE =====
+
+   TIPO 1: senza NOME e SQUADRA
+     - cognome
+     - numero
+     - nazione
+     - ruolo
+     - altezza
+     - piede
+     - età/anno
+     - punti forza/deboli
+
+   TIPO 2: con NOME + COGNOME + SQUADRA
+     - nome
+     - cognome
+     - squadra
+     - numero
+     - nazione
+     - ruolo
+     - altezza
+     - piede
+     - età/anno
+     - punti forza/deboli
+
+   NOTA: il colore della fascia laterale NON viene usato per riconoscere
+   il tipo di card. Milan rosso, Juventus nero, Inter blu, ecc. funzionano
+   allo stesso modo.
+*/
+
+const CARD_TYPE1={
+  surname:   {x:.000,y:.355,w:.250,h:.125},
+  number:    {x:.018,y:.485,w:.215,h:.235},
+  flag:      {x:.075,y:.745,w:.100,h:.165},
+  role:      {x:.375,y:.010,w:.270,h:.095},
+  height:    {x:.785,y:.055,w:.190,h:.190},
+  foot:      {x:.775,y:.285,w:.200,h:.350},
+  ageYear:   {x:.785,y:.680,w:.190,h:.285},
+  strengths: {x:.275,y:.555,w:.475,h:.250,mode:'green'},
+  weaknesses:{x:.275,y:.765,w:.475,h:.205,mode:'red'}
+};
+
+const CARD_TYPE2={
+  first:     {x:.000,y:.340,w:.245,h:.055},
+  surname:   {x:.000,y:.390,w:.245,h:.070},
+  team:      {x:.000,y:.455,w:.245,h:.055},
+  number:    {x:.015,y:.500,w:.220,h:.235},
+  flag:      {x:.073,y:.745,w:.105,h:.170},
+  role:      {x:.365,y:.010,w:.290,h:.095},
+  height:    {x:.785,y:.055,w:.190,h:.190},
+  foot:      {x:.775,y:.285,w:.200,h:.350},
+  ageYear:   {x:.785,y:.680,w:.190,h:.285},
+  strengths: {x:.275,y:.555,w:.475,h:.250,mode:'green'},
+  weaknesses:{x:.275,y:.765,w:.475,h:.205,mode:'red'}
+};
+
+function cropRawRegion(img,r,scale=4){
+  const sx=Math.max(0,Math.round(img.naturalWidth*r.x));
+  const sy=Math.max(0,Math.round(img.naturalHeight*r.y));
+  const sw=Math.min(img.naturalWidth-sx,Math.round(img.naturalWidth*r.w));
+  const sh=Math.min(img.naturalHeight-sy,Math.round(img.naturalHeight*r.h));
+
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(sw*scale));
+  c.height=Math.max(1,Math.round(sh*scale));
+
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,c.width,c.height);
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+  return c;
+}
+
+function otsuThreshold(gray){
+  const hist=new Array(256).fill(0);
+  for(const v of gray)hist[v]++;
+
+  const total=gray.length;
+  let sum=0;
+  for(let i=0;i<256;i++)sum+=i*hist[i];
+
+  let sumB=0,wB=0,maxVar=-1,threshold=127;
+
+  for(let t=0;t<256;t++){
+    wB+=hist[t];
+    if(!wB)continue;
+    const wF=total-wB;
+    if(!wF)break;
+
+    sumB+=t*hist[t];
+    const mB=sumB/wB;
+    const mF=(sum-sumB)/wF;
+    const between=wB*wF*(mB-mF)*(mB-mF);
+
+    if(between>maxVar){
+      maxVar=between;
+      threshold=t;
+    }
+  }
+  return threshold;
+}
+
+function adaptiveTextCanvases(img,r,scale=4){
+  const raw=cropRawRegion(img,r,scale);
+  const ctx=raw.getContext('2d',{willReadFrequently:true});
+  const im=ctx.getImageData(0,0,raw.width,raw.height);
+  const src=im.data;
+  const gray=new Uint8Array(raw.width*raw.height);
+
+  for(let p=0,i=0;i<src.length;i+=4,p++){
+    gray[p]=Math.round(.299*src[i]+.587*src[i+1]+.114*src[i+2]);
+  }
+
+  const thr=otsuThreshold(gray);
+  const result=[];
+
+  // Variant A: dark glyphs on white.
+  for(const invert of [false,true]){
+    const c=document.createElement('canvas');
+    c.width=raw.width;c.height=raw.height;
+    const cctx=c.getContext('2d',{willReadFrequently:true});
+    const out=cctx.createImageData(c.width,c.height);
+
+    for(let p=0,i=0;i<out.data.length;i+=4,p++){
+      let black=gray[p] < thr;
+      if(invert)black=!black;
+      const v=black?0:255;
+      out.data[i]=out.data[i+1]=out.data[i+2]=v;
+      out.data[i+3]=255;
+    }
+    cctx.putImageData(out,0,0);
+    result.push(c);
+  }
+
+  // Variant C: plain grayscale, useful with antialiasing and accents.
+  const gc=document.createElement('canvas');
+  gc.width=raw.width;gc.height=raw.height;
+  const gctx=gc.getContext('2d',{willReadFrequently:true});
+  const gout=gctx.createImageData(gc.width,gc.height);
+  for(let p=0,i=0;i<gout.data.length;i+=4,p++){
+    const v=gray[p];
+    gout.data[i]=gout.data[i+1]=gout.data[i+2]=v;
+    gout.data[i+3]=255;
+  }
+  gctx.putImageData(gout,0,0);
+  result.push(gc);
+
+  return result;
+}
+
+function alphaQuality(text,kind='name'){
+  const t=cleanFieldText(text);
+  if(!t)return -999;
+  const letters=(t.match(/[A-ZÀ-ÖØ-Ý]/g)||[]).length;
+  const digits=(t.match(/[0-9]/g)||[]).length;
+  const words=t.split(/\s+/).filter(Boolean).length;
+
+  let score=letters*2 + words*.5 - digits*6;
+  if(kind==='team'&&letters>=3)score+=4;
+  if(kind==='name'&&letters>=2&&letters<=30)score+=3;
+  if(t.length>45)score-=10;
+  return score;
+}
+
+async function readAdaptiveAlpha(worker,img,r,kind='name'){
+  const canvases=adaptiveTextCanvases(img,r,4.2);
+  const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚÂÊÔÃÕ -.'";
+  const reads=[];
+
+  for(const c of canvases){
+    for(const psm of ['7','6']){
+      const raw=await recognizeCanvas(worker,c,{psm,whitelist});
+      reads.push(raw);
+    }
+  }
+
+  reads.sort((a,b)=>alphaQuality(b,kind)-alphaQuality(a,kind));
+  return cleanFieldText(reads[0]||'');
+}
+
+function looksLikeTeamText(text){
+  const t=cleanFieldText(text);
+  const letters=(t.match(/[A-ZÀ-ÖØ-Ý]/g)||[]).length;
+  const digits=(t.match(/\d/g)||[]).length;
+  return letters>=3 && digits===0 && t.length<=40;
+}
+
+async function detectCardTypeByContent(worker,img){
+  /*
+    Il discriminante è la PRESENZA DELLA RIGA SQUADRA.
+    Il colore della fascia laterale non conta.
+    Nel tipo 1 quella zona è vuota.
+    Nel tipo 2 contiene sempre il nome della squadra sotto al cognome.
+  */
+  const teamProbe=await readAdaptiveAlpha(worker,img,CARD_TYPE2.team,'team');
+
+  if(looksLikeTeamText(teamProbe)){
+    const firstProbe=await readAdaptiveAlpha(worker,img,CARD_TYPE2.first,'name');
+    const lastProbe=await readAdaptiveAlpha(worker,img,CARD_TYPE2.surname,'name');
+
+    const identityEvidence=
+      alphaQuality(firstProbe,'name')>3 ||
+      alphaQuality(lastProbe,'name')>5;
+
+    if(identityEvidence){
+      return {type:2,probe:{first:firstProbe,last:lastProbe,team:teamProbe}};
+    }
+  }
+
+  return {type:1,probe:{}};
+}
+
+async function readNumberInRegion(worker,img,r){
+  const canvases=adaptiveTextCanvases(img,r,4.2);
+  const votes=new Map();
+
+  for(const c of canvases){
+    for(const psm of ['6','7','11']){
+      const raw=await recognizeCanvas(worker,c,{psm,whitelist:'0123456789'});
+      const parts=String(raw||'').match(/\d{1,2}/g)||[];
+
+      for(const p of parts){
+        const n=Number(p);
+        if(n>=1&&n<=99){
+          const bonus=p.length===2?2:1;
+          votes.set(String(n),(votes.get(String(n))||0)+bonus);
+        }
+      }
+    }
+  }
+
+  if(!votes.size)return '';
+  return [...votes.entries()].sort((a,b)=>b[1]-a[1])[0][0];
+}
+
+async function readRoleInRegion(worker,img,r){
+  const reads=[];
+  const canvases=adaptiveTextCanvases(img,r,4.0);
+
+  for(const c of canvases){
+    const raw=await recognizeCanvas(
+      worker,c,
+      {psm:'7',whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZ "}
+    );
+    reads.push(raw);
+  }
+
+  for(const raw of reads){
+    const role=normalizeCardRole(raw);
+    if(role)return role;
+  }
+  return '';
+}
+
+async function readHeightInRegion(worker,img,r){
+  const canvases=adaptiveTextCanvases(img,r,4.0);
+  const votes=new Map();
+
+  for(const c of canvases){
+    for(const psm of ['6','7']){
+      const raw=await recognizeCanvas(worker,c,{psm,whitelist:'0123456789 CMcm'});
+      for(const h of extractHeightCandidate(raw)){
+        votes.set(h,(votes.get(h)||0)+1);
+      }
+    }
+  }
+
+  const ranked=[...votes.entries()].sort((a,b)=>b[1]-a[1]);
+  if(!ranked.length)return '';
+  if(ranked[0][1]>=2)return ranked[0][0];
+  return ranked.length===1?ranked[0][0]:'';
+}
+
+async function readAgeYearInRegion(worker,img,r){
+  const canvases=adaptiveTextCanvases(img,r,4.0);
+  const years=new Map();
+  const ages=[];
+
+  for(const c of canvases){
+    for(const psm of ['6','11']){
+      const raw=await recognizeCanvas(worker,c,{psm,whitelist:'0123456789'});
+      for(const y of extractYearCandidates(raw))years.set(y,(years.get(y)||0)+1);
+      ages.push(...extractAgeCandidates(raw));
+    }
+  }
+
+  const ranked=[...years.entries()].sort((a,b)=>b[1]-a[1]);
+
+  if(ranked.length&&ages.length){
+    const age=ages.sort((a,b)=>a-b)[Math.floor(ages.length/2)];
+    const expected=expectedBirthYearFromAge(age);
+    const compatible=ranked.filter(([y])=>Math.abs(Number(y)-expected)<=1);
+    if(compatible.length)return compatible.sort((a,b)=>b[1]-a[1])[0][0];
+  }
+
+  if(ranked.length)return ranked[0][0];
+
+  if(ages.length){
+    const age=ages.sort((a,b)=>a-b)[Math.floor(ages.length/2)];
+    const y=expectedBirthYearFromAge(age);
+    if(y>=1980&&y<=2015)return String(y);
+  }
+
+  return '';
+}
+
+function detectFootByBoxColor(img,r){
+  /*
+    Regola unica per ENTRAMBE le tipologie:
+      BLU/AZZURRO nel box rosso => DX
+      GIALLO/ORO nel box rosso => SX
+
+    Non leggiamo DX/SX/DESTRO/SINISTRO con OCR.
+  */
+  const sx=Math.round(img.naturalWidth*r.x);
+  const sy=Math.round(img.naturalHeight*r.y);
+  const sw=Math.round(img.naturalWidth*r.w);
+  const sh=Math.round(img.naturalHeight*r.h);
+
+  const c=document.createElement('canvas');
+  c.width=sw;c.height=sh;
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
+
+  const d=ctx.getImageData(0,0,sw,sh).data;
+  let blue=0,yellow=0;
+
+  for(let i=0;i<d.length;i+=4){
+    const R=d[i],G=d[i+1],B=d[i+2];
+
+    const isBlue=
+      B>100 &&
+      B>R*1.17 &&
+      B>G*1.04 &&
+      B-R>28;
+
+    const isYellow=
+      R>145 &&
+      G>108 &&
+      B<140 &&
+      R-B>32 &&
+      G-B>18;
+
+    if(isBlue)blue++;
+    if(isYellow)yellow++;
+  }
+
+  const min=Math.max(80,Math.round(sw*sh*.0018));
+
+  if(blue>=min && blue>yellow*1.22)return 'DX';
+  if(yellow>=min && yellow>blue*1.22)return 'SX';
+  return '';
+}
+
+function detectFlagNationalityInRegion(img,r){
+  /*
+    Riusa il classificatore V33 ma gli fornisce un'immagine virtualmente
+    centrata sulla bandiera: sostituiamo temporaneamente il crop atteso
+    mediante una canvas con la bandiera al centro.
+  */
+  const sx=Math.round(img.naturalWidth*r.x);
+  const sy=Math.round(img.naturalHeight*r.y);
+  const sw=Math.round(img.naturalWidth*r.w);
+  const sh=Math.round(img.naturalHeight*r.h);
+
+  const c=document.createElement('canvas');
+  c.width=img.naturalWidth;
+  c.height=img.naturalHeight;
+  const ctx=c.getContext('2d');
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,c.width,c.height);
+
+  // Place the crop where the V33 classifier expects it on a "classic" card.
+  const tx=Math.round(c.width*.078);
+  const ty=Math.round(c.height*.742);
+  const tw=Math.round(c.width*.090);
+  const th=Math.round(c.height*.166);
+  ctx.drawImage(img,sx,sy,sw,sh,tx,ty,tw,th);
+
+  return detectFlagNationalityV32(c);
+}
+
 async function readCardWithWorker(file,worker,index=0,total=1){
   const img=await loadImage(file);
-  const panel=cardLeftPanelType(img);
-  const yellow=panel==='yellow';
 
   const progress=(label,step,totalSteps)=>{
     if($('progressText')){
@@ -1898,99 +2280,73 @@ async function readCardWithWorker(file,worker,index=0,total=1){
     }
   };
 
-  if(yellow){
-    const steps=8;
-    let s=0;
+  progress('TIPOLOGIA CARD',0,12);
+  const detected=await detectCardTypeByContent(worker,img);
+  const type=detected.type;
+  const R=type===2?CARD_TYPE2:CARD_TYPE1;
 
-    progress('COGNOME',s++,steps);
-    const last=await readIdentityRobust(worker,img,CARD_REGIONS_YELLOW.surname,'name','dark');
+  let step=1;
+  const steps=12;
 
-    progress('RUOLO',s++,steps);
-    const roleRaw=await readRoleRobust(worker,img);
+  let first='';
+  let last='';
+  let team='';
 
-    progress('ALTEZZA',s++,steps);
-    const height=await readHeightRobust(worker,img,true);
+  if(type===2){
+    progress('NOME',step++,steps);
+    first=detected.probe.first || await readAdaptiveAlpha(worker,img,R.first,'name');
 
-    progress('PIEDE',s++,steps);
-    const foot=await readFootRobust(worker,img,true);
+    progress('COGNOME',step++,steps);
+    last=detected.probe.last || await readAdaptiveAlpha(worker,img,R.surname,'name');
 
-    progress('ANNO',s++,steps);
-    const year=await readYearRobust(worker,img,true);
+    progress('SQUADRA',step++,steps);
+    team=detected.probe.team || await readAdaptiveAlpha(worker,img,R.team,'team');
+  }else{
+    progress('COGNOME',step++,steps);
+    last=await readAdaptiveAlpha(worker,img,R.surname,'name');
 
-    progress('PUNTI DI FORZA',s++,steps);
-    const strengthsRaw=await readColoredLinesSmart(worker,img,CARD_REGIONS_YELLOW.strengths,'green');
-
-    progress('PUNTI DEBOLI',s++,steps);
-    const weaknessesRaw=await readColoredLinesSmart(worker,img,CARD_REGIONS_YELLOW.weaknesses,'red');
-
-    progress('NAZIONALITÀ',s++,steps);
-    const nationality=resolveNationality(detectFlagNationalityV32(img));
-
-    return{
-      first:'',
-      last,
-      team:'',
-      number:'',
-      role:normalizeCardRole(roleRaw)||'',
-      position:'',
-      height,
-      foot,
-      year,
-      nationality,
-      strengths:splitOcrLines(strengthsRaw),
-      weaknesses:splitOcrLines(weaknessesRaw)
-    };
+    // Keep progress proportions aligned.
+    step+=2;
   }
 
-  const steps=10;
-  let s=0;
-  const identityMode=panel==='blue'?'white':'dark';
+  progress('NUMERO',step++,steps);
+  const number=await readNumberInRegion(worker,img,R.number);
 
-  progress('NOME',s++,steps);
-  const first=await readIdentityRobust(worker,img,CARD_REGIONS.first,'name',identityMode);
+  progress('RUOLO',step++,steps);
+  const role=await readRoleInRegion(worker,img,R.role);
 
-  progress('COGNOME',s++,steps);
-  const last=await readIdentityRobust(worker,img,CARD_REGIONS.last,'name',identityMode);
+  progress('ALTEZZA',step++,steps);
+  const height=await readHeightInRegion(worker,img,R.height);
 
-  progress('SQUADRA',s++,steps);
-  const team=await readIdentityRobust(worker,img,CARD_REGIONS.team,'team',identityMode);
+  progress('PIEDE',step++,steps);
+  const foot=detectFootByBoxColor(img,R.foot);
 
-  progress('NUMERO',s++,steps);
-  const number=await readNumberRobust(worker,img);
+  progress('ETÀ / ANNO',step++,steps);
+  const year=await readAgeYearInRegion(worker,img,R.ageYear);
 
-  progress('RUOLO',s++,steps);
-  const roleRaw=await readRoleRobust(worker,img);
+  progress('NAZIONALITÀ',step++,steps);
+  const nationality=resolveNationality(detectFlagNationalityInRegion(img,R.flag));
 
-  progress('ALTEZZA',s++,steps);
-  const height=await readHeightRobust(worker,img,false);
+  progress('PUNTI DI FORZA',step++,steps);
+  const strengthsRaw=await readColoredLinesSmart(worker,img,R.strengths,'green');
 
-  progress('PIEDE',s++,steps);
-  const foot=await readFootRobust(worker,img,false);
-
-  progress('ANNO',s++,steps);
-  const year=await readYearRobust(worker,img,false);
-
-  progress('PUNTI DI FORZA',s++,steps);
-  const strengthsRaw=await readColoredLinesSmart(worker,img,CARD_REGIONS.strengths,'green');
-
-  progress('PUNTI DEBOLI',s++,steps);
-  const weaknessesRaw=await readColoredLinesSmart(worker,img,CARD_REGIONS.weaknesses,'red');
-
-  const nationality=resolveNationality(detectFlagNationalityV32(img));
+  progress('PUNTI DEBOLI',step++,steps);
+  const weaknessesRaw=await readColoredLinesSmart(worker,img,R.weaknesses,'red');
 
   return{
     first,
     last,
     team,
     number,
-    role:normalizeCardRole(roleRaw)||'',
+    role,
     position:'',
     height,
     foot,
     year,
     nationality,
     strengths:splitOcrLines(strengthsRaw),
-    weaknesses:splitOcrLines(weaknessesRaw)
+    weaknesses:splitOcrLines(weaknessesRaw),
+    card_type:type
   };
 }
 
