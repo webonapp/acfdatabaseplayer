@@ -119,3 +119,16 @@ In Authentication:
 - Il selettore supporta più file.
 - Cache busting aggiornato a v19.
 - Sintassi JavaScript verificata prima dello ZIP.
+
+
+## V20 - Import click + persistent login
+- Corretto il vero ID del riquadro Dashboard: `dashboardImportBtn`.
+- Il pulsante IMPORTA CARD della sidebar apre direttamente il selettore file.
+- Il riquadro Dashboard apre il selettore file con un click e continua ad accettare drag & drop.
+- Anche IMPORTA CARD nella pagina Giocatori e Impostazioni apre il selettore.
+- Rimossa una seconda assegnazione `.onclick` che sovrascriveva il comportamento corretto.
+- Sessione Supabase impostata esplicitamente con `persistSession: true` e `localStorage`.
+- Refresh pagina: la sessione viene recuperata automaticamente senza richiedere un nuovo login.
+- Refresh automatico del token se vicino alla scadenza.
+- Cache aggiornata a V20.
+- Sintassi JavaScript verificata con Node.
