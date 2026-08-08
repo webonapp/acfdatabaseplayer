@@ -84,3 +84,11 @@ In Authentication:
 - Nel form MODIFICA GIOCATORE il campo SQUADRA non è più un semplice menu a tendina.
 - Ora puoi scrivere manualmente il nome della squadra oppure selezionare uno dei suggerimenti esistenti.
 - Se digiti una squadra nuova, viene creata automaticamente nel database e assegnata al giocatore.
+
+
+## V16
+- Possibilità di modificare una squadra.
+- È modificabile anche il NOME DELLA SQUADRA.
+- Modificabili nazione e competizione.
+- Possibilità di eliminare una squadra intera.
+- Se contiene giocatori, viene mostrato un avviso e, dopo conferma, vengono eliminati anche i giocatori associati.
