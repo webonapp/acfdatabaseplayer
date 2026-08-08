@@ -221,3 +221,37 @@ body.auth-locked{overflow:hidden}
 }
 .dashboard-drop,.dropzone{cursor:pointer}
 .batch-item{cursor:pointer;text-align:left}
+
+
+/* ===== V25: NAZIONALITÀ RICERCABILE + BANDIERE ===== */
+.nationality-search-field{
+  position:relative;
+}
+.nationality-search-field input{
+  padding-left:44px!important;
+  padding-right:34px!important;
+}
+.nationality-flag-preview{
+  position:absolute;
+  left:12px;
+  bottom:11px;
+  width:24px;
+  height:24px;
+  display:grid;
+  place-items:center;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+  font-size:20px;
+  line-height:1;
+  pointer-events:none;
+}
+#fNation,
+#iNationality,
+#nationality{
+  text-transform:uppercase;
+}
+#fNation::-webkit-calendar-picker-indicator,
+#iNationality::-webkit-calendar-picker-indicator,
+#nationality::-webkit-calendar-picker-indicator{
+  opacity:.65;
+  cursor:pointer;
+}

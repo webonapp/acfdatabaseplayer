@@ -147,14 +147,67 @@ const COUNTRIES=[
 // Selezioni calcistiche utili
 ['GB-ENG','INGHILTERRA'],['GB-SCT','SCOZIA'],['GB-WLS','GALLES'],['GB-NIR','IRLANDA DEL NORD'],['XK','KOSOVO']
 ];
-const COUNTRY_FLAG_OVERRIDES={'GB-ENG':'🏴','GB-SCT':'🏴','GB-WLS':'🏴','GB-NIR':'🇬🇧','XK':'🇽🇰'};
-function flagEmoji(code){if(COUNTRY_FLAG_OVERRIDES[code])return COUNTRY_FLAG_OVERRIDES[code];return code.replace(/./g,c=>String.fromCodePoint(127397+c.charCodeAt()))}
-function countryLabel(name){const c=COUNTRIES.find(x=>x[1]===name);return c?`${flagEmoji(c[0])} ${c[1]}`:name}
-function countryOptions(includeAll=false){return (includeAll?'<option value="">Tutte</option>':'<option value="">SELEZIONA NAZIONALITÀ</option>')+COUNTRIES.slice().sort((a,b)=>a[1].localeCompare(b[1],'it')).map(([code,name])=>`<option value="${name}">${flagEmoji(code)} ${name}</option>`).join('')}
+const COUNTRY_FLAG_OVERRIDES={
+  'GB-ENG':'🇬🇧',
+  'GB-SCT':'🇬🇧',
+  'GB-WLS':'🇬🇧',
+  'GB-NIR':'🇬🇧',
+  'XK':'🇽🇰'
+};
+function flagEmoji(code){
+ if(COUNTRY_FLAG_OVERRIDES[code])return COUNTRY_FLAG_OVERRIDES[code];
+ if(!/^[A-Z]{2}$/.test(code))return '🌐';
+ return code.replace(/./g,c=>String.fromCodePoint(127397+c.charCodeAt()));
+}
+
+function countryCodeForName(name){
+ const target=norm(name);
+ const found=COUNTRIES.find(([,n])=>norm(n)===target);
+ return found?.[0]||'';
+}
+
+function countryLabel(name){
+ const c=COUNTRIES.find(x=>norm(x[1])===norm(name));
+ return c?`${flagEmoji(c[0])} ${c[1]}`:String(name||'');
+}
+
+function populateCountrySearch(){
+ const list=$('nationalityOptions');
+ if(!list)return;
+
+ const sorted=COUNTRIES
+   .slice()
+   .sort((a,b)=>a[1].localeCompare(b[1],'it'));
+
+ // value stays clean (e.g. INGHILTERRA), label displays the flag.
+ list.innerHTML=sorted
+   .map(([code,name])=>`<option value="${esc(name)}" label="${flagEmoji(code)} ${esc(name)}"></option>`)
+   .join('');
+}
+
+function sanitizeNationalityInput(value){
+ let text=String(value||'').trim();
+
+ // Accept pasted/selected values that may contain a leading flag emoji.
+ text=text.replace(/^[\p{Regional_Indicator}\u{1F3F4}\u{1F30D}\u{1F310}\u{1F5FA}\uFE0F\u200D\s]+/u,'').trim();
+
+ return resolveNationality(text);
+}
+
+function syncNationalityField(el){
+ if(!el)return;
+ const resolved=sanitizeNationalityInput(el.value);
+ if(resolved)el.value=resolved;
+}
+
 function populateCountrySelects(){
- if($('fNation')){const v=$('fNation').value;$('fNation').innerHTML=countryOptions(true);$('fNation').value=v}
- if($('iNationality')){const v=$('iNationality').value;$('iNationality').innerHTML=countryOptions(false);$('iNationality').value=v}
- if($('nationality')){const v=$('nationality').value;$('nationality').innerHTML=countryOptions(false);$('nationality').value=v}
+ populateCountrySearch();
+
+ // Keep previously stored values normalized.
+ ['fNation','iNationality','nationality'].forEach(id=>{
+   const el=$(id);
+   if(el&&el.value)el.value=sanitizeNationalityInput(el.value);
+ });
 }
 
 
@@ -227,7 +280,8 @@ function renderStats(){
   ].map(([l,v])=>`<div class="stat-card"><h3>${l}</h3><div class="bigstat">${v}</div></div>`).join('');
 }
 
-function showView(n){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+n)?.classList.add('active');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===n));if(n==='players')renderPlayersPage();if(n==='teams')renderTeamsPage();if(n==='stats')renderStats();$('sidebar').classList.remove('mobile-open');scrollTo({top:0,behavior:'smooth'})}document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showView(b.dataset.go));['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).addEventListener(id==='q'?'input':'change',renderDashboard));$('searchBtn').onclick=renderDashboard;$('filterBtn').onclick=renderDashboard;$('resetBtn').onclick=()=>{['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).value='');renderDashboard()};$('playersSearch').oninput=renderPlayersPage;$('playerSort').onchange=renderPlayersPage;
+function showView(n){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+n)?.classList.add('active');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===n));if(n==='players')renderPlayersPage();if(n==='teams')renderTeamsPage();if(n==='stats')renderStats();$('sidebar').classList.remove('mobile-open');scrollTo({top:0,behavior:'smooth'})}document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showView(b.dataset.go));['q','fTeam','fRole','fFoot','fYear'].forEach(id=>$(id).addEventListener(id==='q'?'input':'change',renderDashboard));
+$('fNation')?.addEventListener('input',renderDashboard);$('searchBtn').onclick=renderDashboard;$('filterBtn').onclick=renderDashboard;$('resetBtn').onclick=()=>{['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).value='');renderDashboard()};$('playersSearch').oninput=renderPlayersPage;$('playerSort').onchange=renderPlayersPage;
 
 
 function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}$('manualTeamBtn').onclick=()=>openNewTeamModal();
@@ -236,7 +290,7 @@ function normalizeRole(v){const n=norm(v);if(n.includes('dif')||n.includes('terz
 function openNewTeamModal(){$('teamForm').reset();$('teamEditId').value='';$('teamModalTitle').textContent='NUOVA SQUADRA';openModal('teamModal')}
 window.editTeam=id=>{const t=teams.find(x=>String(x.id)===String(id));if(!t)return;$('teamEditId').value=t.id;$('teamModalTitle').textContent='MODIFICA SQUADRA';$('teamName').value=upper(t.name||'');$('teamCountry').value=upper(t.country||'');$('teamCompetition').value=upper(t.competition||'');openModal('teamModal')};
 window.deleteTeam=async id=>{const t=teams.find(x=>String(x.id)===String(id));if(!t)return;const linked=players.filter(p=>String(p.team_id)===String(id));let msg=`ELIMINARE DEFINITIVAMENTE LA SQUADRA "${t.name}"?`;if(linked.length)msg+=`\n\nATTENZIONE: CI SONO ${linked.length} GIOCATORI ASSOCIATI.\nELIMINANDO LA SQUADRA VERRANNO ELIMINATI ANCHE TUTTI I GIOCATORI DELLA SQUADRA.`;if(!confirm(msg))return;try{await ensureWriteSession();if(linked.length){const{error:e1}=await db.from('players').delete().eq('team_id',id);if(e1)throw new Error('ERRORE ELIMINAZIONE GIOCATORI: '+e1.message)}const{error:e2}=await db.from('teams').delete().eq('id',id);if(e2)throw new Error('ERRORE ELIMINAZIONE SQUADRA: '+e2.message);await loadAll();showView('teams')}catch(err){console.error(err);alert(err?.message||'ERRORE DURANTE L’ELIMINAZIONE DELLA SQUADRA.')}};
-window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamNameEdit').value=upper(p.teams?.name||'');$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=p.foot==='SX'?'SX':'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=resolveNationality(p.nationality||'');$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{
+window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamNameEdit').value=upper(p.teams?.name||'');$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=p.foot==='SX'?'SX':'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=sanitizeNationalityInput(p.nationality||'');$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{
   e.preventDefault();
   if(!db)return alert('SUPABASE NON CONFIGURATO.');
 
@@ -271,7 +325,7 @@ window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)
       height:$('height').value?Number($('height').value):null,
       foot:upper($('foot').value),
       birth_year:$('birthYear').value?Number($('birthYear').value):null,
-      nationality:resolveNationality($('nationality').value),
+      nationality:sanitizeNationalityInput($('nationality').value),
       strengths:$('strengths').value.split(',').map(upper).filter(Boolean),
       weaknesses:$('weaknesses').value.split(',').map(upper).filter(Boolean),
       notes:upper($('notes').value),
@@ -533,7 +587,7 @@ function captureReview(){
     height:$('iHeight').value,
     foot:upper($('iFoot').value),
     year:$('iBirthYear').value,
-    nationality:resolveNationality($('iNationality').value),
+    nationality:sanitizeNationalityInput($('iNationality').value),
     strengths:$('iStrengths').value.split(',').map(upper).filter(Boolean),
     weaknesses:$('iWeaknesses').value.split(',').map(upper).filter(Boolean)
   };
@@ -804,7 +858,7 @@ async function processCard(){
     $('processCardBtn').disabled=false;
   }
 }
-function fillImport(p){$('iFirstName').value=upper(p.first);$('iLastName').value=upper(p.last);$('iTeam').value=upper(p.team);$('iNumber').value=p.number||'';$('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'ATTACCANTE';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=p.foot==='SX'?'SX':'DX';$('iBirthYear').value=p.year||'';$('iNationality').value=resolveNationality(p.nationality||'');$('iStrengths').value=(p.strengths||[]).map(upper).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).map(upper).join(', ')}
+function fillImport(p){$('iFirstName').value=upper(p.first);$('iLastName').value=upper(p.last);$('iTeam').value=upper(p.team);$('iNumber').value=p.number||'';$('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'ATTACCANTE';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=p.foot==='SX'?'SX':'DX';$('iBirthYear').value=p.year||'';$('iNationality').value=sanitizeNationalityInput(p.nationality||'');$('iStrengths').value=(p.strengths||[]).map(upper).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).map(upper).join(', ')}
 
 
 async function archiveImportedPlayer(){
@@ -902,4 +956,56 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.getRegistrations().then(regs=>regs.forEach(r=>r.unregister())).catch(()=>{});
 }
 
+
+function installNationalitySearchUX(){
+  ['fNation','iNationality','nationality'].forEach(id=>{
+    const input=$(id);
+    if(!input)return;
+
+    input.setAttribute('spellcheck','false');
+
+    input.addEventListener('input',()=>{
+      // Keep free typing so the browser datalist can filter live.
+      input.value=input.value.toUpperCase();
+      updateNationalityFlagPreview(input);
+    });
+
+    input.addEventListener('change',()=>{
+      syncNationalityField(input);
+      updateNationalityFlagPreview(input);
+      if(id==='fNation')renderDashboard();
+    });
+
+    input.addEventListener('blur',()=>{
+      syncNationalityField(input);
+      updateNationalityFlagPreview(input);
+    });
+
+    ensureNationalityFlagPreview(input);
+    updateNationalityFlagPreview(input);
+  });
+}
+
+function ensureNationalityFlagPreview(input){
+  if(!input||input.parentElement?.querySelector('.nationality-flag-preview'))return;
+  const preview=document.createElement('span');
+  preview.className='nationality-flag-preview';
+  preview.setAttribute('aria-hidden','true');
+  input.parentElement?.classList.add('nationality-search-field');
+  input.parentElement?.appendChild(preview);
+}
+
+function updateNationalityFlagPreview(input){
+  if(!input)return;
+  const preview=input.parentElement?.querySelector('.nationality-flag-preview');
+  if(!preview)return;
+
+  const clean=sanitizeNationalityInput(input.value);
+  const code=countryCodeForName(clean);
+  preview.textContent=code?flagEmoji(code):'';
+  input.classList.toggle('has-nationality-flag',!!code);
+}
+
+populateCountrySearch();
+installNationalitySearchUX();
 initializeAuth().catch(e=>{console.error(e);showLogin(e.message)});

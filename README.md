@@ -182,3 +182,13 @@ Correzioni:
 - Riconoscimento robusto DIFENSORE / CENTROCAMPISTA / ATTACCANTE con secondo passaggio OCR dedicato se necessario.
 - Se il ruolo non è leggibile, resta vuoto invece di inventare ATTACCANTE.
 - Multi-card mantenuto.
+
+
+## V25 - Nazionalità
+- Corrette le bandiere che in Chrome venivano mostrate come bandiera nera.
+- INGHILTERRA, SCOZIA, GALLES e IRLANDA DEL NORD usano un fallback 🇬🇧 compatibile con Chrome/macOS invece delle subdivision emoji non supportate.
+- I campi NAZIONALITÀ sono ora ricercabili: basta iniziare a digitare il nome della nazione.
+- Il menu dei suggerimenti viene filtrato automaticamente dal browser.
+- La bandiera compare anche a sinistra del campo una volta scelta la nazione.
+- Il database continua a salvare solo il nome pulito della nazionalità, senza emoji.
+- Ricerca nazionalità aggiunta anche al filtro Dashboard.
