@@ -1007,6 +1007,409 @@ async function createCardWorker(logger){
 }
 
 
+
+/* ===== V32: SMART CARD READER ===== */
+
+function cardLeftPanelType(img){
+  if(isYellowCardLayout(img))return 'yellow';
+
+  const pts=[
+    pixelAtImage(img,.10,.55),
+    pixelAtImage(img,.10,.62),
+    pixelAtImage(img,.10,.69)
+  ];
+  const avg=pts.reduce((a,p)=>[a[0]+p[0],a[1]+p[1],a[2]+p[2]],[0,0,0]).map(x=>x/pts.length);
+  const [R,G,B]=avg;
+  if(B>R*1.20 && B>G*1.05 && B>115)return 'blue';
+  return 'light';
+}
+
+function textCandidateQuality(text,kind='text'){
+  const t=cleanFieldText(text);
+  if(!t)return -999;
+
+  const letters=(t.match(/[A-ZÀ-ÖØ-Ý]/g)||[]).length;
+  const digits=(t.match(/[0-9]/g)||[]).length;
+  const spaces=(t.match(/ /g)||[]).length;
+  const weird=(t.match(/[^A-ZÀ-ÖØ-Ý0-9'’\-\. ]/g)||[]).length;
+
+  let score=letters*2 + digits*.5 + spaces*.2 - weird*5;
+
+  if(kind==='name'){
+    if(digits)score-=digits*8;
+    if(t.length>=2&&t.length<=32)score+=4;
+  }
+  if(kind==='team'){
+    if(digits)score-=digits*5;
+    if(t.length>=3&&t.length<=40)score+=3;
+  }
+  if(kind==='role'){
+    if(normalizeCardRole(t))score+=25;
+  }
+  return score;
+}
+
+async function readIdentityRobust(worker,img,region,kind='name',mode='dark'){
+  const r=expandedRegion(region,.014,.010);
+  const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÉÈÁÍÓÚÂÊÔÃÕÇ -.'";
+
+  const canvases=[];
+  const base={...r,mode};
+
+  // Original preserves accents/shape. Gray and binary help low contrast.
+  canvases.push(cropRegionVariant(img,base,3.4,'original'));
+  canvases.push(cropRegionVariant(img,base,3.6,'gray'));
+  canvases.push(cropRegionVariant(img,base,3.8,'soft'));
+  canvases.push(cropRegionVariant(img,base,4.0,'hard'));
+
+  const reads=[];
+  for(const c of canvases){
+    for(const psm of ['7','6']){
+      const raw=await recognizeCanvas(worker,c,{psm,whitelist});
+      reads.push(raw);
+    }
+  }
+
+  reads.sort((a,b)=>textCandidateQuality(b,kind)-textCandidateQuality(a,kind));
+  return cleanFieldText(reads[0]||'');
+}
+
+async function readNumberRobust(worker,img){
+  // The old crop occasionally clipped the first digit (e.g. 15 -> 5).
+  const r={x:0,y:.495,w:.240,h:.235,mode:'dark'};
+  const canvases=[
+    cropRegionVariant(img,r,3.8,'original'),
+    cropRegionVariant(img,r,4.0,'gray'),
+    cropRegionVariant(img,r,4.0,'soft')
+  ];
+
+  const votes=new Map();
+  for(const c of canvases){
+    for(const psm of ['6','7','11']){
+      const raw=await recognizeCanvas(worker,c,{psm,whitelist:'0123456789'});
+      const ds=String(raw||'').replace(/\D/g,'');
+      for(let len=1;len<=2;len++){
+        for(let i=0;i<=ds.length-len;i++){
+          const s=ds.slice(i,i+len);
+          const n=Number(s);
+          if(n>=1&&n<=99){
+            // Prefer two-digit shirt numbers when the OCR returned them as a unit.
+            const bonus=len===2?1.5:0;
+            votes.set(s,(votes.get(s)||0)+1+bonus);
+          }
+        }
+      }
+    }
+  }
+
+  if(!votes.size)return '';
+  return [...votes.entries()].sort((a,b)=>b[1]-a[1])[0][0];
+}
+
+function extractYearCandidates(text){
+  const raw=String(text||'').replace(/\D/g,'');
+  const out=new Set();
+
+  for(let i=0;i<=raw.length-4;i++){
+    const n=Number(raw.slice(i,i+4));
+    if(n>=1980&&n<=2015)out.add(String(n));
+  }
+
+  // OCR sometimes duplicates a zero: 20006 -> 2006.
+  const collapsed=raw.replace(/0{3,}/g,'00');
+  for(let i=0;i<=collapsed.length-4;i++){
+    const n=Number(collapsed.slice(i,i+4));
+    if(n>=1980&&n<=2015)out.add(String(n));
+  }
+
+  return [...out];
+}
+
+function extractAgeCandidates(text){
+  const nums=String(text||'').match(/\d{1,2}/g)||[];
+  return nums.map(Number).filter(n=>n>=15&&n<=45);
+}
+
+function expectedBirthYearFromAge(age){
+  const now=new Date();
+  const year=now.getFullYear();
+  const passedMar1=(now.getMonth()>2)||(now.getMonth()===2&&now.getDate()>=1);
+  return year-age-(passedMar1?0:1);
+}
+
+async function readYearRobust(worker,img,isYellow){
+  const r=isYellow
+    ?{x:.785,y:.675,w:.205,h:.285,mode:'dark'}
+    :{x:.785,y:.675,w:.205,h:.285,mode:'dark'};
+
+  const canvases=[
+    cropRegionVariant(img,r,3.6,'original'),
+    cropRegionVariant(img,r,3.8,'gray'),
+    cropRegionVariant(img,r,4.0,'soft')
+  ];
+
+  const yearVotes=new Map();
+  const ages=[];
+
+  for(const c of canvases){
+    for(const psm of ['6','11']){
+      const raw=await recognizeCanvas(worker,c,{psm,whitelist:'0123456789'});
+      for(const y of extractYearCandidates(raw))yearVotes.set(y,(yearVotes.get(y)||0)+1);
+      ages.push(...extractAgeCandidates(raw));
+    }
+  }
+
+  const ranked=[...yearVotes.entries()].sort((a,b)=>b[1]-a[1]);
+
+  if(ranked.length){
+    if(ages.length){
+      const age=ages.sort((a,b)=>a-b)[Math.floor(ages.length/2)];
+      const expected=expectedBirthYearFromAge(age);
+      const consistent=ranked.filter(([y])=>Math.abs(Number(y)-expected)<=1);
+      if(consistent.length)return consistent.sort((a,b)=>b[1]-a[1])[0][0];
+    }
+    return ranked[0][0];
+  }
+
+  if(ages.length){
+    const age=ages.sort((a,b)=>a-b)[Math.floor(ages.length/2)];
+    const y=expectedBirthYearFromAge(age);
+    if(y>=1980&&y<=2015)return String(y);
+  }
+
+  return '';
+}
+
+function colorInkMatch(R,G,B,mode,strictness='normal'){
+  if(mode==='green'){
+    if(strictness==='soft')return G>65&&G>R*1.01&&G>B*.94;
+    if(strictness==='hard')return G>100&&G>R*1.08&&G>B*1.00;
+    return G>82&&G>R*1.04&&G>B*.97;
+  }
+  if(mode==='red'){
+    if(strictness==='soft')return R>80&&R>G*1.01&&R>B*1.00;
+    if(strictness==='hard')return R>125&&R>G*1.10&&R>B*1.07;
+    return R>100&&R>G*1.05&&R>B*1.03;
+  }
+  return false;
+}
+
+function findColoredTextRegion(img,baseRegion,mode){
+  const x0=Math.max(0,Math.round(img.naturalWidth*baseRegion.x));
+  const y0=Math.max(0,Math.round(img.naturalHeight*baseRegion.y));
+  const w=Math.min(img.naturalWidth-x0,Math.round(img.naturalWidth*baseRegion.w));
+  const h=Math.min(img.naturalHeight-y0,Math.round(img.naturalHeight*baseRegion.h));
+
+  const c=document.createElement('canvas');
+  c.width=w;c.height=h;
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,x0,y0,w,h,0,0,w,h);
+  const d=ctx.getImageData(0,0,w,h).data;
+
+  let minX=w,minY=h,maxX=-1,maxY=-1,count=0;
+  const rowInk=new Array(h).fill(0);
+
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const i=(y*w+x)*4;
+      if(colorInkMatch(d[i],d[i+1],d[i+2],mode,'soft')){
+        minX=Math.min(minX,x);maxX=Math.max(maxX,x);
+        minY=Math.min(minY,y);maxY=Math.max(maxY,y);
+        rowInk[y]++;count++;
+      }
+    }
+  }
+
+  if(count<40||maxX<0)return {region:baseRegion,lineBands:[]};
+
+  const padX=Math.max(8,Math.round(w*.018));
+  const padY=Math.max(6,Math.round(h*.012));
+
+  minX=Math.max(0,minX-padX);maxX=Math.min(w-1,maxX+padX);
+  minY=Math.max(0,minY-padY);maxY=Math.min(h-1,maxY+padY);
+
+  // Detect horizontal text lines from the color mask.
+  const threshold=Math.max(2,Math.round(w*.006));
+  const bands=[];
+  let start=null;
+  for(let y=minY;y<=maxY;y++){
+    const active=rowInk[y]>=threshold;
+    if(active&&start===null)start=y;
+    if((!active||y===maxY)&&start!==null){
+      const end=active&&y===maxY?y:y-1;
+      if(end-start>=3)bands.push([Math.max(minY,start-padY),Math.min(maxY,end+padY)]);
+      start=null;
+    }
+  }
+
+  // Merge nearby fragments from the same line.
+  const merged=[];
+  for(const b of bands){
+    const last=merged.at(-1);
+    if(last&&b[0]-last[1]<Math.max(8,h*.018))last[1]=b[1];
+    else merged.push(b.slice());
+  }
+
+  const region={
+    x:(x0+minX)/img.naturalWidth,
+    y:(y0+minY)/img.naturalHeight,
+    w:(maxX-minX+1)/img.naturalWidth,
+    h:(maxY-minY+1)/img.naturalHeight,
+    mode
+  };
+
+  const lineBands=merged.map(([a,b])=>({
+    x:region.x,
+    y:(y0+a)/img.naturalHeight,
+    w:region.w,
+    h:(b-a+1)/img.naturalHeight,
+    mode
+  }));
+
+  return {region,lineBands};
+}
+
+async function readColoredLinesSmart(worker,img,baseRegion,mode){
+  const detected=findColoredTextRegion(img,baseRegion,mode);
+  const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚ 0123456789,'’-/ ";
+
+  const wholeReads=[];
+  for(const strictness of ['original','soft','hard','gray']){
+    const c=cropRegionVariant(img,detected.region,3.5,strictness);
+    wholeReads.push(await recognizeCanvas(worker,c,{psm:'6',whitelist}));
+  }
+
+  const whole=mergeBestTextCandidates(wholeReads);
+  const wholeLines=splitOcrLines(whole);
+
+  // Line-by-line OCR is much less likely to lose the first glyph.
+  const lineReads=[];
+  for(const lineRegion of detected.lineBands.slice(0,7)){
+    const variants=[
+      cropRegionVariant(img,lineRegion,4.2,'original'),
+      cropRegionVariant(img,lineRegion,4.4,'soft'),
+      cropRegionVariant(img,lineRegion,4.4,'hard')
+    ];
+
+    const candidates=[];
+    for(const c of variants){
+      candidates.push(await recognizeCanvas(worker,c,{psm:'7',whitelist}));
+    }
+    candidates.sort((a,b)=>lineQuality(b)-lineQuality(a));
+    const line=normalizeOcrLine(candidates[0]||'');
+    if(line.length>1)lineReads.push(line);
+  }
+
+  if(!lineReads.length)return whole;
+
+  // Prefer line-by-line if it has at least as much alphabetic content.
+  const scoreWhole=wholeLines.reduce((s,l)=>s+lineQuality(l),0);
+  const scoreLines=lineReads.reduce((s,l)=>s+lineQuality(l),0);
+
+  return scoreLines>=scoreWhole*.90?lineReads.join('\n'):whole;
+}
+
+/* Flag classifier V32:
+   tighter crop, includes TURCHIA, and only returns high-confidence matches. */
+function detectFlagNationalityV32(img){
+  const yellow=isYellowCardLayout(img);
+
+  // Both layouts place the circular flag around the same normalized position.
+  const r=yellow
+    ?{x:.085,y:.760,w:.078,h:.138}
+    :{x:.082,y:.755,w:.080,h:.142};
+
+  const sx=Math.round(img.naturalWidth*r.x);
+  const sy=Math.round(img.naturalHeight*r.y);
+  const sw=Math.round(img.naturalWidth*r.w);
+  const sh=Math.round(img.naturalHeight*r.h);
+
+  const c=document.createElement('canvas');
+  c.width=260;c.height=260;
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,260,260);
+  const px=ctx.getImageData(0,0,260,260).data;
+
+  const classify=(R,G,B)=>{
+    const max=Math.max(R,G,B),min=Math.min(R,G,B);
+    if(R<82&&G<82&&B<82)return'K';
+    if(R>145&&R>G*1.28&&R>B*1.24)return'R';
+    if(R>188&&G>188&&B>188&&max-min<65)return'W';
+    if(B>95&&B>R*1.20&&B>G*1.06)return'B';
+    if(G>88&&G>R*1.08&&G>B*1.02)return'G';
+    if(R>145&&G>112&&B<120&&R>B*1.22&&G>B*1.10)return'Y';
+    return'O';
+  };
+
+  function stats(x0,y0,x1,y1){
+    const count={K:0,R:0,W:0,B:0,G:0,Y:0,O:0};
+    let n=0;
+    for(let y=y0;y<y1;y+=2){
+      for(let x=x0;x<x1;x+=2){
+        const dx=x-130,dy=y-130;
+        if(dx*dx+dy*dy>94*94)continue;
+        const i=(y*260+x)*4;
+        count[classify(px[i],px[i+1],px[i+2])]++;
+        n++;
+      }
+    }
+    const q=k=>(count[k]||0)/Math.max(1,n);
+    return {q,count,n};
+  }
+
+  const all=stats(30,30,230,230);
+  const left=stats(42,48,105,212);
+  const midV=stats(105,48,155,212);
+  const right=stats(155,48,218,212);
+  const top=stats(48,42,212,105);
+  const midH=stats(48,105,212,155);
+  const bottom=stats(48,155,212,218);
+  const center=stats(90,90,190,190);
+  const q=all.q;
+
+  const scores=[];
+  const add=(n,s)=>scores.push([n,s]);
+
+  add('GERMANIA', top.q('K')*2.5 + midH.q('R')*2.5 + bottom.q('Y')*2.5 - q('B')*2);
+  add('SPAGNA', top.q('R')*1.7 + midH.q('Y')*2.5 + bottom.q('R')*1.7 - q('B')*1.5);
+  add('PAESI BASSI', top.q('R')*2.2 + midH.q('W')*2.2 + bottom.q('B')*2.2);
+  add('ARGENTINA', top.q('B')*2 + midH.q('W')*2.3 + bottom.q('B')*2 - q('R')*2);
+  add('FRANCIA', left.q('B')*2.2 + midV.q('W')*2.2 + right.q('R')*2.2);
+  add('ITALIA', left.q('G')*2.2 + midV.q('W')*2.2 + right.q('R')*2.2);
+  add('BELGIO', left.q('K')*2.2 + midV.q('Y')*2.2 + right.q('R')*2.2);
+  add('ROMANIA', left.q('B')*2 + midV.q('Y')*2 + right.q('R')*2);
+  add('IRLANDA', left.q('G')*2 + midV.q('W')*2 + right.q('Y')*1.5);
+  add('NIGERIA', left.q('G')*2 + midV.q('W')*2 + right.q('G')*2);
+  add('POLONIA', top.q('W')*2.3 + bottom.q('R')*2.3);
+  add('AUSTRIA', top.q('R')*2 + midH.q('W')*2.3 + bottom.q('R')*2);
+  add('UCRAINA', top.q('B')*2.3 + bottom.q('Y')*2.3);
+  add('COLOMBIA', top.q('Y')*2.4 + midH.q('B')*1.5 + bottom.q('R')*1.6);
+
+  // Cross/field flags.
+  add('SCOZIA', q('B')*3.4 + q('W')*1.5 - q('R')*3 - q('Y')*1.8);
+  add('DANIMARCA', q('R')*3.0 + q('W')*1.5 - q('Y')*2 - q('B')*2);
+  add('INGHILTERRA', q('W')*3.0 + q('R')*1.5 - q('B')*1.7 - q('Y')*1.2);
+  add('BRASILE', q('G')*2.8 + q('Y')*2.0 + q('B')*.8 - q('R'));
+
+  // TURCHIA: red field with central white crescent/star, more red and less white than Denmark.
+  add('TURCHIA', q('R')*3.5 + center.q('W')*1.5 - q('Y')*3 - q('B')*3 - q('G')*3);
+
+  scores.sort((a,b)=>b[1]-a[1]);
+  const [best,score]=scores[0]||['',0];
+  const second=scores[1]?.[1]??0;
+
+  if(score<1.70 || score-second<.20)return '';
+
+  // Hard signatures for the most frequent false-positive pairs.
+  if(best==='GERMANIA' && !(q('K')>.10&&q('R')>.18&&q('Y')>.10))return '';
+  if(best==='SPAGNA' && !(q('R')>.18&&q('Y')>.18))return '';
+  if(best==='SCOZIA' && !(q('B')>.38&&q('W')>.10&&q('R')<.05))return '';
+  if(best==='TURCHIA' && !(q('R')>.55&&q('W')>.10&&q('Y')<.04&&q('B')<.04))return '';
+  if(best==='DANIMARCA' && !(q('R')>.36&&q('W')>.12&&q('Y')<.05))return '';
+
+  return best;
+}
+
 /* ===== V31: LETTURA MULTI-PASS ===== */
 
 function expandedRegion(r,padX=.012,padY=.010){
@@ -1351,7 +1754,8 @@ function detectFlagNationalityV31(img){
 
 async function readCardWithWorker(file,worker,index=0,total=1){
   const img=await loadImage(file);
-  const yellow=isYellowCardLayout(img);
+  const panel=cardLeftPanelType(img);
+  const yellow=panel==='yellow';
 
   const progress=(label,step,totalSteps)=>{
     if($('progressText')){
@@ -1366,80 +1770,98 @@ async function readCardWithWorker(file,worker,index=0,total=1){
   };
 
   if(yellow){
-    const raw={};
     const steps=8;
     let s=0;
 
     progress('COGNOME',s++,steps);
-    raw.last=await readCustomRegion(
-      worker,img,CARD_REGIONS_YELLOW.surname,
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇ -'"
-    );
+    const last=await readIdentityRobust(worker,img,CARD_REGIONS_YELLOW.surname,'name','dark');
 
     progress('RUOLO',s++,steps);
-    raw.role=await readRoleRobust(worker,img);
+    const roleRaw=await readRoleRobust(worker,img);
 
     progress('ALTEZZA',s++,steps);
-    raw.height=await readHeightRobust(worker,img,true);
+    const height=await readHeightRobust(worker,img,true);
 
     progress('PIEDE',s++,steps);
-    raw.foot=await readFootRobust(worker,img,true);
+    const foot=await readFootRobust(worker,img,true);
 
     progress('ANNO',s++,steps);
-    raw.year=await readCustomRegion(worker,img,CARD_REGIONS_YELLOW.year,'0123456789');
+    const year=await readYearRobust(worker,img,true);
 
     progress('PUNTI DI FORZA',s++,steps);
-    raw.strengths=await readColoredTextRobust(worker,img,CARD_REGIONS_YELLOW.strengths,'green');
+    const strengthsRaw=await readColoredLinesSmart(worker,img,CARD_REGIONS_YELLOW.strengths,'green');
 
     progress('PUNTI DEBOLI',s++,steps);
-    raw.weaknesses=await readColoredTextRobust(worker,img,CARD_REGIONS_YELLOW.weaknesses,'red');
+    const weaknessesRaw=await readColoredLinesSmart(worker,img,CARD_REGIONS_YELLOW.weaknesses,'red');
 
     progress('NAZIONALITÀ',s++,steps);
+    const nationality=resolveNationality(detectFlagNationalityV32(img));
 
     return{
       first:'',
-      last:cleanFieldText(raw.last),
+      last,
       team:'',
       number:'',
-      role:normalizeCardRole(raw.role)||'',
+      role:normalizeCardRole(roleRaw)||'',
       position:'',
-      height:String(raw.height||''),
-      foot:raw.foot||'',
-      year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
-      nationality:resolveNationality(detectFlagNationalityV31(img)),
-      strengths:splitOcrLines(raw.strengths),
-      weaknesses:splitOcrLines(raw.weaknesses)
+      height,
+      foot,
+      year,
+      nationality,
+      strengths:splitOcrLines(strengthsRaw),
+      weaknesses:splitOcrLines(weaknessesRaw)
     };
   }
 
-  // Template storico: comportamento precedente.
-  const keys=['role','first','last','team','number','height','foot','year','strengths','weaknesses'];
-  const raw={};
+  const steps=10;
+  let s=0;
+  const identityMode=panel==='blue'?'white':'dark';
 
-  for(let k=0;k<keys.length;k++){
-    const key=keys[k];
-    progress(key.toUpperCase(),k,keys.length);
-    if(key==='role')raw[key]=await readRoleRobust(worker,img);
-    else if(key==='foot')raw[key]=await readFootRobust(worker,img,false);
-    else if(key==='height')raw[key]=await readHeightRobust(worker,img,false);
-    else if(key==='strengths')raw[key]=await readColoredTextRobust(worker,img,CARD_REGIONS.strengths,'green');
-    else if(key==='weaknesses')raw[key]=await readColoredTextRobust(worker,img,CARD_REGIONS.weaknesses,'red');
-    else raw[key]=await readRegion(worker,img,key);
-  }
+  progress('NOME',s++,steps);
+  const first=await readIdentityRobust(worker,img,CARD_REGIONS.first,'name',identityMode);
+
+  progress('COGNOME',s++,steps);
+  const last=await readIdentityRobust(worker,img,CARD_REGIONS.last,'name',identityMode);
+
+  progress('SQUADRA',s++,steps);
+  const team=await readIdentityRobust(worker,img,CARD_REGIONS.team,'team',identityMode);
+
+  progress('NUMERO',s++,steps);
+  const number=await readNumberRobust(worker,img);
+
+  progress('RUOLO',s++,steps);
+  const roleRaw=await readRoleRobust(worker,img);
+
+  progress('ALTEZZA',s++,steps);
+  const height=await readHeightRobust(worker,img,false);
+
+  progress('PIEDE',s++,steps);
+  const foot=await readFootRobust(worker,img,false);
+
+  progress('ANNO',s++,steps);
+  const year=await readYearRobust(worker,img,false);
+
+  progress('PUNTI DI FORZA',s++,steps);
+  const strengthsRaw=await readColoredLinesSmart(worker,img,CARD_REGIONS.strengths,'green');
+
+  progress('PUNTI DEBOLI',s++,steps);
+  const weaknessesRaw=await readColoredLinesSmart(worker,img,CARD_REGIONS.weaknesses,'red');
+
+  const nationality=resolveNationality(detectFlagNationalityV32(img));
 
   return{
-    first:cleanFieldText(raw.first),
-    last:cleanFieldText(raw.last),
-    team:cleanFieldText(raw.team),
-    number:cleanDigits(raw.number).slice(0,2),
-    role:normalizeCardRole(raw.role)||'',
+    first,
+    last,
+    team,
+    number,
+    role:normalizeCardRole(roleRaw)||'',
     position:'',
-    height:String(raw.height||''),
-    foot:raw.foot||'',
-    year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
-    nationality:resolveNationality(detectFlagNationalityV31(img)),
-    strengths:splitOcrLines(raw.strengths),
-    weaknesses:splitOcrLines(raw.weaknesses)
+    height,
+    foot,
+    year,
+    nationality,
+    strengths:splitOcrLines(strengthsRaw),
+    weaknesses:splitOcrLines(weaknessesRaw)
   };
 }
 
@@ -1545,7 +1967,7 @@ async function archiveParsedPlayer(parsed){
     last_name:upper(parsed.last),
     team_id:team.id,
     number:parsed.number!==''?Number(parsed.number):null,
-    role:upper(parsed.role||'ATTACCANTE'),
+    role:upper(parsed.role||''),
     position:upper(parsed.position),
     height:parsed.height!==''?Number(parsed.height):null,
     foot:upper(parsed.foot||''),

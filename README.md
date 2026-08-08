@@ -289,3 +289,47 @@ NAZIONALITÀ
 - Migliorati i pattern di Germania, Scozia, Spagna, Francia, Italia, Belgio, Paesi Bassi, Argentina, Danimarca, Inghilterra, Brasile, Polonia, Ucraina, Austria, Nigeria, Irlanda, Romania e Colombia.
 
 Il riconoscimento PIEDE della V29 resta invariato.
+
+
+## V32 - Smart Reader
+
+La lettura card è stata ricostruita come pipeline adattiva anziché affidarsi a una singola OCR.
+
+IDENTITÀ
+- Riconosce automaticamente pannello sinistro blu, chiaro o template giallo.
+- Nome, cognome e squadra usano 8 letture OCR per campo (originale, scala di grigi e due binarizzazioni, PSM 6/7).
+- Il miglior risultato viene scelto tramite punteggio di qualità.
+- Il template bianco non viene più trattato come se avesse testo bianco.
+
+NUMERO
+- Crop allargato fino al bordo sinistro, evitando 15 -> 5.
+- OCR esclusivamente numerico con PSM 6/7/11 e voto tra più letture.
+
+ANNO
+- Più letture OCR e confronto con l'età presente sulla card.
+- Se l'anno è danneggiato dall'OCR, può essere ricostruito dall'età usando la convenzione del 1 marzo.
+- Vengono accettati solo anni plausibili.
+
+ALTEZZA
+- Mantiene il sistema multi-pass a consenso della V31.
+
+PUNTI DI FORZA / DEBOLI
+- Il software individua prima i pixel realmente verdi o rossi.
+- Calcola automaticamente il bounding box del testo, quindi non dipende da un crop troppo stretto.
+- Rileva le singole righe tramite proiezione orizzontale.
+- Ogni riga viene letta separatamente con tre preprocessing.
+- Il risultato riga-per-riga viene confrontato con la lettura dell'intero blocco.
+- Riduce drasticamente prime lettere tagliate, righe duplicate e contaminazioni tra punti di forza/deboli.
+
+NAZIONALITÀ
+- Crop più stretto sulla sola bandiera.
+- Classificatore V32 con distribuzione spaziale dei colori e confidence gating.
+- Aggiunto riconoscimento TURCHIA.
+- Se la bandiera non è abbastanza sicura, il campo resta vuoto anziché assegnare una nazione sbagliata.
+
+PIEDE
+- Mantiene il riconoscimento deterministico a colori della V29.
+- Nessun default automatico DX.
+
+RUOLO
+- Mantiene doppio passaggio OCR e non forza ATTACCANTE se incerto.
