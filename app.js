@@ -295,17 +295,17 @@ window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)
   NON MODIFICARE: sono le stesse zone della versione con lettura corretta.
 */
 const CARD_REGIONS={
-  role:       {x:.381,y:.017,w:.259,h:.083,psm:'7',mode:'dark'},
-  first:      {x:.032,y:.366,w:.188,h:.048,psm:'7',mode:'white'},
-  last:       {x:.032,y:.405,w:.188,h:.057,psm:'7',mode:'white'},
-  team:       {x:.015,y:.457,w:.215,h:.052,psm:'7',mode:'white'},
-  number:     {x:.015,y:.513,w:.215,h:.209,psm:'7',mode:'white',digits:true},
+  role:       {x:.345,y:.012,w:.330,h:.095,psm:'7',mode:'dark'},
+  first:      {x:.020,y:.360,w:.215,h:.057,psm:'7',mode:'white'},
+  last:       {x:.018,y:.399,w:.222,h:.068,psm:'7',mode:'white'},
+  team:       {x:.008,y:.448,w:.235,h:.064,psm:'7',mode:'white'},
+  number:     {x:.010,y:.505,w:.225,h:.218,psm:'7',mode:'white',digits:true},
   flag:       {x:.065,y:.720,w:.145,h:.245},
-  height:     {x:.796,y:.061,w:.185,h:.165,psm:'6',mode:'dark',digits:true},
-  foot:       {x:.800,y:.313,w:.176,h:.209,psm:'6',mode:'blue'},
-  year:       {x:.781,y:.714,w:.205,h:.226,psm:'6',mode:'dark',digits:true},
-  strengths:  {x:.317,y:.566,w:.391,h:.244,psm:'6',mode:'green'},
-  weaknesses: {x:.305,y:.780,w:.430,h:.180,psm:'6',mode:'red'}
+  height:     {x:.785,y:.055,w:.205,h:.175,psm:'6',mode:'dark',digits:true},
+  foot:       {x:.790,y:.300,w:.195,h:.225,psm:'6',mode:'blue'},
+  year:       {x:.775,y:.700,w:.215,h:.240,psm:'6',mode:'dark',digits:true},
+  strengths:  {x:.285,y:.552,w:.455,h:.265,psm:'6',mode:'green'},
+  weaknesses: {x:.275,y:.765,w:.475,h:.205,psm:'6',mode:'red'}
 };
 
 function loadImage(file){return new Promise((ok,ko)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=ko;im.src=URL.createObjectURL(file)})}
@@ -328,13 +328,97 @@ function cropCanvas(img,r,scale=2.2){
 }
 function cleanLine(t){return String(t||'').replace(/[\r\n]+/g,' ').replace(/[|]/g,'I').replace(/\s+/g,' ').trim()}
 function cleanFieldText(t){
- let x=cleanLine(t).toUpperCase().replace(/[^A-ZÀ-ÖØ-Ý0-9'’\-\. ]/g,' ').replace(/\s+/g,' ').trim();
- // Scarta esclusivamente frammenti isolati generati dal bordo, senza correggere parole.
- const parts=x.split(' ').filter(Boolean);while(parts.length>1&&parts.at(-1).length===1)parts.pop();while(parts.length>1&&parts[0].length===1)parts.shift();return parts.join(' ');
+ let x=cleanLine(t)
+   .toUpperCase()
+   .replace(/[^A-ZÀ-ÖØ-Ý0-9'’\-\. ]/g,' ')
+   .replace(/\s+/g,' ')
+   .trim();
+
+ let parts=x.split(' ').filter(Boolean);
+
+ // OCR può separare la prima lettera dal resto della parola:
+ // "J ENSEN" -> "JENSEN", "L ETTURA" -> "LETTURA".
+ if(parts.length>1 && /^[A-ZÀ-ÖØ-Ý]$/.test(parts[0]) && /^[A-ZÀ-ÖØ-Ý]{2,}$/.test(parts[1])){
+   parts[1]=parts[0]+parts[1];
+   parts.shift();
+ }
+
+ // Stesso recupero a fine parola, solo quando è chiaramente alfabetico.
+ if(parts.length>1 && /^[A-ZÀ-ÖØ-Ý]$/.test(parts.at(-1)) && /^[A-ZÀ-ÖØ-Ý]{2,}$/.test(parts.at(-2))){
+   parts[parts.length-2]=parts.at(-2)+parts.at(-1);
+   parts.pop();
+ }
+
+ return parts.join(' ');
 }
 function cleanDigits(t){const m=String(t||'').match(/\d+/g);return m?m.join(''):''}
-function cleanMulti(t){return String(t||'').split(/\n+/).map(cleanFieldText).filter(x=>x.length>2).join('\n')}
-function normalizeCardRole(t){const n=cleanFieldText(t);if(n.includes('DIFENS'))return'DIFENSORE';if(n.includes('CENTRO'))return'CENTROCAMPISTA';if(n.includes('ATTACC'))return'ATTACCANTE';return'ATTACCANTE'}
+function cleanMulti(t){
+ return String(t||'')
+   .split(/\n+/)
+   .map(cleanFieldText)
+   .filter(x=>x.length>1)
+   .join('\n');
+}
+function normalizeCardRole(t){
+ const n=cleanFieldText(t).replace(/[^A-Z]/g,'');
+
+ // Exact / partial recognition, tolerant to one missing or incorrect OCR letter.
+ if(n.includes('DIFENSORE') || n.includes('DIFENS') || /^DIF/.test(n)) return 'DIFENSORE';
+ if(n.includes('CENTROCAMPISTA') || n.includes('CENTRO') || n.includes('CAMPISTA') || /^CEN/.test(n)) return 'CENTROCAMPISTA';
+ if(n.includes('ATTACCANTE') || n.includes('ATTACC') || /^ATT/.test(n)) return 'ATTACCANTE';
+
+ // Character-pattern fallbacks for typical OCR distortions.
+ if(/D.?F.?NS/.test(n)) return 'DIFENSORE';
+ if(/C.?NTR/.test(n) || /CAMP.?ST/.test(n)) return 'CENTROCAMPISTA';
+ if(/A.?T.?ACC/.test(n)) return 'ATTACCANTE';
+
+ return '';
+}
+
+async function readRoleRobust(worker,img){
+  // Primo passaggio: stessa pipeline colore della card.
+  const first=await readRegion(worker,img,'role');
+  if(normalizeCardRole(first))return first;
+
+  // Secondo passaggio soltanto se il primo non produce un ruolo:
+  // crop più ampio e contrasto in scala di grigi.
+  const r={x:.325,y:.005,w:.370,h:.115};
+  const sx=Math.max(0,Math.round(img.naturalWidth*r.x));
+  const sy=Math.max(0,Math.round(img.naturalHeight*r.y));
+  const sw=Math.min(img.naturalWidth-sx,Math.round(img.naturalWidth*r.w));
+  const sh=Math.min(img.naturalHeight-sy,Math.round(img.naturalHeight*r.h));
+
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,sw*3);
+  c.height=Math.max(1,sh*3);
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+
+  const im=ctx.getImageData(0,0,c.width,c.height);
+  const a=im.data;
+  for(let i=0;i<a.length;i+=4){
+    const gray=Math.round(.299*a[i]+.587*a[i+1]+.114*a[i+2]);
+    const v=gray<185?0:255;
+    a[i]=a[i+1]=a[i+2]=v;
+    a[i+3]=255;
+  }
+  ctx.putImageData(im,0,0);
+
+  await worker.setParameters({
+    tessedit_pageseg_mode:'7',
+    preserve_interword_spaces:'1',
+    user_defined_dpi:'300',
+    load_system_dawg:'0',
+    load_freq_dawg:'0',
+    tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZ "
+  });
+
+  const {data}=await worker.recognize(c);
+  return data.text||first||'';
+}
+
 async function readRegion(worker,img,key){
  const r=CARD_REGIONS[key],c=cropCanvas(img,r,key==='number'?2.7:2.2);
  const params={tessedit_pageseg_mode:r.psm||'7',preserve_interword_spaces:'1',user_defined_dpi:'300',load_system_dawg:'0',load_freq_dawg:'0'};
@@ -510,7 +594,7 @@ async function readCardWithWorker(file,worker,index=0,total=1){
     }
     const overall=((index+(k/keys.length))/total)*100;
     if($('progressFill'))$('progressFill').style.width=`${Math.round(overall)}%`;
-    raw[key]=await readRegion(worker,img,key);
+    raw[key]=key==='role'?await readRoleRobust(worker,img):await readRegion(worker,img,key);
   }
 
   return {
@@ -518,7 +602,7 @@ async function readCardWithWorker(file,worker,index=0,total=1){
     last:cleanFieldText(raw.last),
     team:cleanFieldText(raw.team),
     number:cleanDigits(raw.number).slice(0,2),
-    role:normalizeCardRole(raw.role),
+    role:normalizeCardRole(raw.role)||'',
     position:'',
     height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
     foot:/SX/i.test(raw.foot)?'SX':'DX',

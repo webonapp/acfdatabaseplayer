@@ -172,3 +172,13 @@ Correzioni:
 - Multi-card mantenuto.
 - Cache aggiornata a V23.
 - Sintassi JavaScript verificata prima dello ZIP.
+
+
+## V24 - Precisione OCR
+- Allargate leggermente le aree di cognome, nome, squadra, punti di forza e punti deboli per non tagliare la prima lettera.
+- Corretto il filtro che eliminava una lettera iniziale separata dall'OCR: `J ENSEN` ora viene ricostruito come `JENSEN`.
+- Stesso recupero applicato ai testi di punti di forza/deboli.
+- Ruolo non più fisso su ATTACCANTE.
+- Riconoscimento robusto DIFENSORE / CENTROCAMPISTA / ATTACCANTE con secondo passaggio OCR dedicato se necessario.
+- Se il ruolo non è leggibile, resta vuoto invece di inventare ATTACCANTE.
+- Multi-card mantenuto.
