@@ -116,6 +116,67 @@ async function ensureWriteSession(){
 }
 
 
+/*
+ * AUTH EVENTI REGISTRATI SUBITO.
+ * In questo modo eventuali errori nei moduli successivi non possono
+ * rendere inattivi ACCEDI o MOSTRA.
+ */
+(function bindAuthenticationImmediately(){
+  const form=$('loginForm');
+  const button=$('loginBtn');
+
+  if(form && !form.dataset.authBound){
+    form.dataset.authBound='1';
+
+    form.addEventListener('submit',async function(e){
+      e.preventDefault();
+      e.stopPropagation();
+
+      const email=String($('loginEmail')?.value||'').trim();
+      const password=String($('loginPassword')?.value||'');
+
+      setLoginError('');
+      if(button){
+        button.disabled=true;
+        button.textContent='ACCESSO...';
+      }
+
+      try{
+        const session=await loginWithPassword(email,password);
+        hideLogin(session);
+        if($('loginPassword'))$('loginPassword').value='';
+
+        try{
+          await loadAll();
+        }catch(loadErr){
+          console.error('DATABASE LOAD ERROR',loadErr);
+          alert('LOGIN EFFETTUATO. ERRORE CARICAMENTO DATABASE: '+(loadErr?.message||loadErr));
+        }
+      }catch(err){
+        console.error('LOGIN ERROR',err);
+        showLogin(err?.message||'IMPOSSIBILE EFFETTUARE L’ACCESSO.');
+      }finally{
+        if(button){
+          button.disabled=false;
+          button.textContent='ACCEDI';
+        }
+      }
+    });
+  }
+
+  // Listener JS oltre al fallback inline.
+  const toggle=$('togglePassword');
+  if(toggle && !toggle.dataset.toggleBound){
+    toggle.dataset.toggleBound='1';
+    toggle.addEventListener('click',function(e){
+      e.preventDefault();
+      // Se l'onclick inline ha già effettuato il toggle non facciamo un secondo toggle.
+      // L'attributo inline è il fallback principale e funziona anche se il resto dell'app si interrompe.
+    });
+  }
+})();
+
+
 // Nazioni disponibili: bandiera emoji + nome. Nessun file esterno necessario.
 const COUNTRIES=[
 ['AF','AFGHANISTAN'],['AL','ALBANIA'],['DZ','ALGERIA'],['AD','ANDORRA'],['AO','ANGOLA'],['AG','ANTIGUA E BARBUDA'],['SA','ARABIA SAUDITA'],['AR','ARGENTINA'],['AM','ARMENIA'],['AU','AUSTRALIA'],['AT','AUSTRIA'],['AZ','AZERBAIGIAN'],['BS','BAHAMAS'],['BH','BAHRAIN'],['BD','BANGLADESH'],['BB','BARBADOS'],['BE','BELGIO'],['BZ','BELIZE'],['BJ','BENIN'],['BT','BHUTAN'],['BY','BIELORUSSIA'],['BO','BOLIVIA'],['BA','BOSNIA ED ERZEGOVINA'],['BW','BOTSWANA'],['BR','BRASILE'],['BN','BRUNEI'],['BG','BULGARIA'],['BF','BURKINA FASO'],['BI','BURUNDI'],['KH','CAMBOGIA'],['CM','CAMERUN'],['CA','CANADA'],['CV','CAPO VERDE'],['TD','CIAD'],['CL','CILE'],['CN','CINA'],['CY','CIPRO'],['CO','COLOMBIA'],['KM','COMORE'],['CG','CONGO'],['CD','REPUBBLICA DEMOCRATICA DEL CONGO'],['KP','COREA DEL NORD'],['KR','COREA DEL SUD'],['CI','COSTA D’AVORIO'],['CR','COSTA RICA'],['HR','CROAZIA'],['CU','CUBA'],['DK','DANIMARCA'],['DM','DOMINICA'],['EC','ECUADOR'],['EG','EGITTO'],['SV','EL SALVADOR'],['AE','EMIRATI ARABI UNITI'],['ER','ERITREA'],['EE','ESTONIA'],['SZ','ESWATINI'],['ET','ETIOPIA'],['FJ','FIJI'],['PH','FILIPPINE'],['FI','FINLANDIA'],['FR','FRANCIA'],['GA','GABON'],['GM','GAMBIA'],['GE','GEORGIA'],['DE','GERMANIA'],['GH','GHANA'],['JM','GIAMAICA'],['JP','GIAPPONE'],['DJ','GIBUTI'],['JO','GIORDANIA'],['GR','GRECIA'],['GD','GRENADA'],['GT','GUATEMALA'],['GN','GUINEA'],['GW','GUINEA-BISSAU'],['GQ','GUINEA EQUATORIALE'],['GY','GUYANA'],['HT','HAITI'],['HN','HONDURAS'],['IN','INDIA'],['ID','INDONESIA'],['IR','IRAN'],['IQ','IRAQ'],['IE','IRLANDA'],['IS','ISLANDA'],['IL','ISRAELE'],['IT','ITALIA'],['KZ','KAZAKISTAN'],['KE','KENYA'],['KG','KIRGHIZISTAN'],['KI','KIRIBATI'],['KW','KUWAIT'],['LA','LAOS'],['LS','LESOTHO'],['LV','LETTONIA'],['LB','LIBANO'],['LR','LIBERIA'],['LY','LIBIA'],['LI','LIECHTENSTEIN'],['LT','LITUANIA'],['LU','LUSSEMBURGO'],['MK','MACEDONIA DEL NORD'],['MG','MADAGASCAR'],['MW','MALAWI'],['MY','MALESIA'],['MV','MALDIVE'],['ML','MALI'],['MT','MALTA'],['MA','MAROCCO'],['MH','ISOLE MARSHALL'],['MR','MAURITANIA'],['MU','MAURITIUS'],['MX','MESSICO'],['FM','MICRONESIA'],['MD','MOLDAVIA'],['MC','MONACO'],['MN','MONGOLIA'],['ME','MONTENEGRO'],['MZ','MOZAMBICO'],['MM','MYANMAR'],['NA','NAMIBIA'],['NR','NAURU'],['NP','NEPAL'],['NI','NICARAGUA'],['NE','NIGER'],['NG','NIGERIA'],['NO','NORVEGIA'],['NZ','NUOVA ZELANDA'],['OM','OMAN'],['NL','PAESI BASSI'],['PK','PAKISTAN'],['PW','PALAU'],['PS','PALESTINA'],['PA','PANAMA'],['PG','PAPUA NUOVA GUINEA'],['PY','PARAGUAY'],['PE','PERÙ'],['PL','POLONIA'],['PT','PORTOGALLO'],['QA','QATAR'],['GB','REGNO UNITO'],['CZ','REPUBBLICA CECA'],['CF','REPUBBLICA CENTRAFRICANA'],['DO','REPUBBLICA DOMINICANA'],['RO','ROMANIA'],['RW','RUANDA'],['RU','RUSSIA'],['KN','SAINT KITTS E NEVIS'],['LC','SAINT LUCIA'],['VC','SAINT VINCENT E GRENADINE'],['WS','SAMOA'],['SM','SAN MARINO'],['ST','SÃO TOMÉ E PRÍNCIPE'],['SN','SENEGAL'],['RS','SERBIA'],['SC','SEYCHELLES'],['SL','SIERRA LEONE'],['SG','SINGAPORE'],['SY','SIRIA'],['SK','SLOVACCHIA'],['SI','SLOVENIA'],['SB','ISOLE SALOMONE'],['SO','SOMALIA'],['ES','SPAGNA'],['LK','SRI LANKA'],['US','STATI UNITI'],['ZA','SUDAFRICA'],['SD','SUDAN'],['SS','SUD SUDAN'],['SR','SURINAME'],['SE','SVEZIA'],['CH','SVIZZERA'],['TJ','TAGIKISTAN'],['TW','TAIWAN'],['TZ','TANZANIA'],['TH','THAILANDIA'],['TL','TIMOR EST'],['TG','TOGO'],['TO','TONGA'],['TT','TRINIDAD E TOBAGO'],['TN','TUNISIA'],['TR','TURCHIA'],['TM','TURKMENISTAN'],['TV','TUVALU'],['UA','UCRAINA'],['UG','UGANDA'],['HU','UNGHERIA'],['UY','URUGUAY'],['UZ','UZBEKISTAN'],['VU','VANUATU'],['VA','CITTÀ DEL VATICANO'],['VE','VENEZUELA'],['VN','VIETNAM'],['YE','YEMEN'],['ZM','ZAMBIA'],['ZW','ZIMBABWE'],
@@ -512,50 +573,17 @@ document.addEventListener('input',e=>{
 });
 
 
-const loginFormEl=$('loginForm');
-if(loginFormEl){
-  loginFormEl.addEventListener('submit',async e=>{
-    e.preventDefault();
-    e.stopPropagation();
 
-    const btn=$('loginBtn');
-    const email=String($('loginEmail')?.value||'').trim();
-    const password=String($('loginPassword')?.value||'');
 
-    setLoginError('');
-    if(btn){
-      btn.disabled=true;
-      btn.textContent='ACCESSO...';
-    }
-
-    try{
-      const session=await loginWithPassword(email,password);
-      hideLogin(session);
-      if($('loginPassword'))$('loginPassword').value='';
-      await loadAll();
-    }catch(err){
-      console.error('LOGIN ERROR',err);
-      showLogin(err?.message||'IMPOSSIBILE EFFETTUARE L’ACCESSO.');
-    }finally{
-      if(btn){
-        btn.disabled=false;
-        btn.textContent='ACCEDI';
-      }
-    }
-  });
-}
-
-const togglePasswordEl=$('togglePassword');
-if(togglePasswordEl){
-  togglePasswordEl.addEventListener('click',e=>{
-    e.preventDefault();
-    const input=$('loginPassword');
-    if(!input)return;
-    const show=input.type==='password';
-    input.type=show?'text':'password';
-    togglePasswordEl.textContent=show?'NASCONDI':'MOSTRA';
-  });
-}
+window.addEventListener('error',e=>{
+  console.error('APP ERROR',e.error||e.message);
+  if(!$('authGate')?.classList.contains('hidden')){
+    setLoginError('ERRORE APPLICAZIONE: '+String(e.message||'errore JavaScript'));
+  }
+});
+window.addEventListener('unhandledrejection',e=>{
+  console.error('UNHANDLED PROMISE',e.reason);
+});
 
 $('logoutBtn')?.addEventListener('click',logout);
 initializeAuth().catch(e=>{console.error(e);showLogin(e.message)});

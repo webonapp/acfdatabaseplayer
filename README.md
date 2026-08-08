@@ -100,3 +100,12 @@ In Authentication:
 - Ripristinato il pulsante MOSTRA / NASCONDI password.
 - Rimossa la frase sotto LOGIN richiesta dall'utente.
 - Controllo sintattico JavaScript eseguito prima della creazione dello ZIP.
+
+
+## V18 - Login hard fix
+- ACCEDI viene collegato all'inizio di app.js, prima degli altri moduli della web app.
+- MOSTRA/NASCONDI ha anche un fallback inline indipendente dal resto del JavaScript.
+- Aggiunto cache-busting `?v=18` a config.js e app.js.
+- Il service worker elimina le vecchie cache durante l'aggiornamento.
+- Aggiunta segnalazione visibile degli errori JavaScript nella schermata login.
+- Sintassi app.js verificata con Node prima di generare il pacchetto.
