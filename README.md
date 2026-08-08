@@ -333,3 +333,29 @@ PIEDE
 
 RUOLO
 - Mantiene doppio passaggio OCR e non forza ATTACCANTE se incerto.
+
+
+## V33 - Bandiere estese + quadrato immaginario PIEDE
+
+PIEDE TEMPLATE GIALLO
+- Implementato il "quadrato immaginario" richiesto intorno all'intero blocco PIEDE.
+- Il riquadro viene analizzato pixel per pixel.
+- BLU/AZZURRO dominante = DX.
+- GIALLO/ORO dominante = SX.
+- Se nessun colore è sufficientemente dominante, il campo resta vuoto.
+- Non viene utilizzato OCR per decidere il piede nel template giallo.
+
+NAZIONALITÀ
+- Motore di riconoscimento esteso a oltre 70 nazionalità / federazioni frequenti nel calcio.
+- Copertura ampliata a:
+  Portogallo, Croazia, Serbia, Bosnia-Erzegovina, Slovenia, Slovacchia, Ungheria,
+  Bulgaria, Russia, Svezia, Norvegia, Finlandia, Islanda, Grecia, Svizzera,
+  Albania, Kosovo, Macedonia del Nord, Georgia, Armenia, Marocco, Algeria,
+  Tunisia, Egitto, Senegal, Costa d'Avorio, Ghana, Camerun, Mali, Guinea,
+  Nigeria, Sudafrica, Capo Verde, Gambia, Burkina Faso, Gabon, Angola,
+  RD Congo, Congo, Stati Uniti, Canada, Messico, Uruguay, Paraguay, Cile,
+  Perù, Ecuador, Venezuela, Bolivia, Costa Rica, Panama, Giamaica, Giappone,
+  Corea del Sud, Cina, Australia, Nuova Zelanda, Iran, Iraq, Arabia Saudita,
+  Qatar e Israele, oltre alle nazioni già presenti.
+- Riconoscimento basato su struttura spaziale, bande, colori centrali e angoli.
+- Confidence gate: in caso di dubbio il campo resta vuoto invece di assegnare una bandiera errata.

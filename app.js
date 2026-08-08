@@ -472,58 +472,72 @@ async function readCustomRegion(worker,img,r,whitelist){
 
 function detectYellowCardFootByColor(img){
   /*
-    Nel template giallo il piede dominante non va letto come testo:
-    una delle due impronte è RIEMPITA DI BLU.
+    V33 - QUADRATO IMMAGINARIO PIEDE
+    Nel template giallo analizziamo esclusivamente il riquadro grafico
+    che contiene PIEDE + impronte + DESTRO/SINISTRO.
 
-    Coordinate reali sulle card 2048×1152:
-      area piedi circa x 1680..1890, y 430..620.
+    Regola richiesta:
+      presenza BLU/AZZURRO dominante -> DX
+      presenza GIALLO/ORO dominante -> SX
 
-    Se il baricentro del blu è a destra => DESTRO => DX.
-    Se il baricentro del blu è a sinistra => SINISTRO => SX.
+    Coordinate calibrate sulle card gialle 2048×1152 fornite.
   */
-  const sx=Math.round(img.naturalWidth*.805);
-  const sy=Math.round(img.naturalHeight*.345);
-  const sw=Math.round(img.naturalWidth*.125);
-  const sh=Math.round(img.naturalHeight*.205);
+  const box={
+    x:.795,
+    y:.285,
+    w:.150,
+    h:.355
+  };
+
+  const sx=Math.round(img.naturalWidth*box.x);
+  const sy=Math.round(img.naturalHeight*box.y);
+  const sw=Math.round(img.naturalWidth*box.w);
+  const sh=Math.round(img.naturalHeight*box.h);
 
   const c=document.createElement('canvas');
   c.width=sw;
   c.height=sh;
+
   const ctx=c.getContext('2d',{willReadFrequently:true});
   ctx.drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
 
   const d=ctx.getImageData(0,0,sw,sh).data;
-  let blueCount=0;
-  let xSum=0;
+
+  let blue=0;
+  let yellow=0;
+  let colored=0;
 
   for(let y=0;y<sh;y++){
     for(let x=0;x<sw;x++){
       const i=(y*sw+x)*4;
       const R=d[i],G=d[i+1],B=d[i+2];
 
-      // Blu saturo dell'impronta. Soglia volutamente larga per JPEG.
+      // BLU / AZZURRO saturo dell'impronta.
       const isBlue=
-        B>105 &&
-        B>R*1.30 &&
-        B>G*1.10 &&
-        (B-R)>45;
+        B>100 &&
+        B>R*1.18 &&
+        B>G*1.05 &&
+        (B-R)>28;
 
-      if(isBlue){
-        blueCount++;
-        xSum+=x;
-      }
+      // GIALLO / ORO dell'impronta sinistra.
+      const isYellow=
+        R>150 &&
+        G>115 &&
+        B<135 &&
+        (R-B)>35 &&
+        (G-B)>20;
+
+      if(isBlue){blue++;colored++}
+      if(isYellow){yellow++;colored++}
     }
   }
 
-  // Se non c'è abbastanza blu, non inventiamo il piede.
-  if(blueCount<120)return '';
+  const area=sw*sh;
+  const minEvidence=Math.max(90,Math.round(area*.0020));
 
-  const centroidX=xSum/blueCount;
-  const relative=centroidX/sw;
-
-  // Le due impronte sono ben separate. Il confine centrale è circa 0.52.
-  if(relative>0.52)return 'DX';
-  if(relative<0.48)return 'SX';
+  // Richiediamo anche un vantaggio netto per evitare falsi positivi.
+  if(blue>=minEvidence && blue>yellow*1.30)return 'DX';
+  if(yellow>=minEvidence && yellow>blue*1.30)return 'SX';
 
   return '';
 }
@@ -1312,12 +1326,22 @@ async function readColoredLinesSmart(worker,img,baseRegion,mode){
 /* Flag classifier V32:
    tighter crop, includes TURCHIA, and only returns high-confidence matches. */
 function detectFlagNationalityV32(img){
-  const yellow=isYellowCardLayout(img);
+  /*
+    V33 - CLASSIFICATORE BANDIERE ESTESO.
+    Manteniamo il nome della funzione per compatibilità con il reader V32,
+    ma il motore è stato ampliato.
 
-  // Both layouts place the circular flag around the same normalized position.
+    Strategia:
+    1. crop circolare preciso
+    2. classificazione cromatica
+    3. analisi per bande orizzontali/verticali
+    4. analisi centro/angoli
+    5. scoring con confidence gate
+  */
+  const yellow=isYellowCardLayout(img);
   const r=yellow
-    ?{x:.085,y:.760,w:.078,h:.138}
-    :{x:.082,y:.755,w:.080,h:.142};
+    ?{x:.083,y:.748,w:.084,h:.158}
+    :{x:.078,y:.742,w:.090,h:.166};
 
   const sx=Math.round(img.naturalWidth*r.x);
   const sy=Math.round(img.naturalHeight*r.y);
@@ -1325,19 +1349,21 @@ function detectFlagNationalityV32(img){
   const sh=Math.round(img.naturalHeight*r.h);
 
   const c=document.createElement('canvas');
-  c.width=260;c.height=260;
+  c.width=300;c.height=300;
   const ctx=c.getContext('2d',{willReadFrequently:true});
-  ctx.drawImage(img,sx,sy,sw,sh,0,0,260,260);
-  const px=ctx.getImageData(0,0,260,260).data;
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,300,300);
+  const px=ctx.getImageData(0,0,300,300).data;
 
   const classify=(R,G,B)=>{
     const max=Math.max(R,G,B),min=Math.min(R,G,B);
-    if(R<82&&G<82&&B<82)return'K';
-    if(R>145&&R>G*1.28&&R>B*1.24)return'R';
-    if(R>188&&G>188&&B>188&&max-min<65)return'W';
-    if(B>95&&B>R*1.20&&B>G*1.06)return'B';
-    if(G>88&&G>R*1.08&&G>B*1.02)return'G';
-    if(R>145&&G>112&&B<120&&R>B*1.22&&G>B*1.10)return'Y';
+    if(R<80&&G<80&&B<80)return'K';
+    if(R>145&&R>G*1.26&&R>B*1.22)return'R';
+    if(R>190&&G>190&&B>190&&max-min<62)return'W';
+    if(B>95&&B>R*1.18&&B>G*1.05)return'B';
+    if(G>88&&G>R*1.07&&G>B*1.02)return'G';
+    if(R>145&&G>110&&B<125&&R>B*1.20&&G>B*1.08)return'Y';
     return'O';
   };
 
@@ -1346,66 +1372,169 @@ function detectFlagNationalityV32(img){
     let n=0;
     for(let y=y0;y<y1;y+=2){
       for(let x=x0;x<x1;x+=2){
-        const dx=x-130,dy=y-130;
-        if(dx*dx+dy*dy>94*94)continue;
-        const i=(y*260+x)*4;
+        const dx=x-150,dy=y-150;
+        if(dx*dx+dy*dy>108*108)continue;
+        const i=(y*300+x)*4;
         count[classify(px[i],px[i+1],px[i+2])]++;
         n++;
       }
     }
     const q=k=>(count[k]||0)/Math.max(1,n);
-    return {q,count,n};
+    return{q,count,n};
   }
 
-  const all=stats(30,30,230,230);
-  const left=stats(42,48,105,212);
-  const midV=stats(105,48,155,212);
-  const right=stats(155,48,218,212);
-  const top=stats(48,42,212,105);
-  const midH=stats(48,105,212,155);
-  const bottom=stats(48,155,212,218);
-  const center=stats(90,90,190,190);
+  const all=stats(35,35,265,265);
+  const left=stats(45,55,115,245);
+  const midV=stats(115,55,185,245);
+  const right=stats(185,55,255,245);
+  const top=stats(55,45,245,115);
+  const midH=stats(55,115,245,185);
+  const bottom=stats(55,185,245,255);
+  const center=stats(105,105,195,195);
+  const tl=stats(55,55,120,120);
+  const tr=stats(180,55,245,120);
+  const bl=stats(55,180,120,245);
+  const br=stats(180,180,245,245);
   const q=all.q;
 
   const scores=[];
-  const add=(n,s)=>scores.push([n,s]);
+  const add=(name,score,guard=true)=>{
+    if(guard && Number.isFinite(score))scores.push([name,score]);
+  };
 
-  add('GERMANIA', top.q('K')*2.5 + midH.q('R')*2.5 + bottom.q('Y')*2.5 - q('B')*2);
-  add('SPAGNA', top.q('R')*1.7 + midH.q('Y')*2.5 + bottom.q('R')*1.7 - q('B')*1.5);
-  add('PAESI BASSI', top.q('R')*2.2 + midH.q('W')*2.2 + bottom.q('B')*2.2);
-  add('ARGENTINA', top.q('B')*2 + midH.q('W')*2.3 + bottom.q('B')*2 - q('R')*2);
-  add('FRANCIA', left.q('B')*2.2 + midV.q('W')*2.2 + right.q('R')*2.2);
-  add('ITALIA', left.q('G')*2.2 + midV.q('W')*2.2 + right.q('R')*2.2);
-  add('BELGIO', left.q('K')*2.2 + midV.q('Y')*2.2 + right.q('R')*2.2);
-  add('ROMANIA', left.q('B')*2 + midV.q('Y')*2 + right.q('R')*2);
-  add('IRLANDA', left.q('G')*2 + midV.q('W')*2 + right.q('Y')*1.5);
-  add('NIGERIA', left.q('G')*2 + midV.q('W')*2 + right.q('G')*2);
-  add('POLONIA', top.q('W')*2.3 + bottom.q('R')*2.3);
-  add('AUSTRIA', top.q('R')*2 + midH.q('W')*2.3 + bottom.q('R')*2);
-  add('UCRAINA', top.q('B')*2.3 + bottom.q('Y')*2.3);
-  add('COLOMBIA', top.q('Y')*2.4 + midH.q('B')*1.5 + bottom.q('R')*1.6);
+  // ----- EUROPA: bande classiche -----
+  add('GERMANIA', top.q('K')*2.6 + midH.q('R')*2.6 + bottom.q('Y')*2.6 - q('B')*2);
+  add('SPAGNA', top.q('R')*1.7 + midH.q('Y')*2.7 + bottom.q('R')*1.7 - q('B')*1.5);
+  add('PAESI BASSI', top.q('R')*2.3 + midH.q('W')*2.3 + bottom.q('B')*2.3);
+  add('FRANCIA', left.q('B')*2.3 + midV.q('W')*2.3 + right.q('R')*2.3);
+  add('ITALIA', left.q('G')*2.3 + midV.q('W')*2.3 + right.q('R')*2.3);
+  add('BELGIO', left.q('K')*2.3 + midV.q('Y')*2.3 + right.q('R')*2.3);
+  add('ROMANIA', left.q('B')*2.1 + midV.q('Y')*2.1 + right.q('R')*2.1);
+  add('IRLANDA', left.q('G')*2.2 + midV.q('W')*2.2 + right.q('Y')*1.7);
+  add('POLONIA', top.q('W')*2.4 + bottom.q('R')*2.4);
+  add('AUSTRIA', top.q('R')*2.1 + midH.q('W')*2.5 + bottom.q('R')*2.1);
+  add('UCRAINA', top.q('B')*2.4 + bottom.q('Y')*2.4);
 
-  // Cross/field flags.
-  add('SCOZIA', q('B')*3.4 + q('W')*1.5 - q('R')*3 - q('Y')*1.8);
-  add('DANIMARCA', q('R')*3.0 + q('W')*1.5 - q('Y')*2 - q('B')*2);
-  add('INGHILTERRA', q('W')*3.0 + q('R')*1.5 - q('B')*1.7 - q('Y')*1.2);
-  add('BRASILE', q('G')*2.8 + q('Y')*2.0 + q('B')*.8 - q('R'));
+  // Portogallo: verde a sinistra + rosso dominante a destra.
+  add('PORTOGALLO', left.q('G')*2.5 + right.q('R')*2.5 + q('Y')*.5 - q('B')*1.5);
 
-  // TURCHIA: red field with central white crescent/star, more red and less white than Denmark.
+  // Ungheria: rosso / bianco / verde.
+  add('UNGHERIA', top.q('R')*2.2 + midH.q('W')*2.2 + bottom.q('G')*2.2);
+
+  // Bulgaria: bianco / verde / rosso.
+  add('BULGARIA', top.q('W')*2.2 + midH.q('G')*2.2 + bottom.q('R')*2.2);
+
+  // Russia / Serbia / Slovenia / Slovacchia / Croazia use W-B-R families.
+  add('RUSSIA', top.q('W')*2.1 + midH.q('B')*2.1 + bottom.q('R')*2.1);
+  add('SERBIA', top.q('R')*2.0 + midH.q('B')*2.0 + bottom.q('W')*2.0 + left.q('Y')*.25);
+  add('SLOVENIA', top.q('W')*2.0 + midH.q('B')*2.0 + bottom.q('R')*2.0 + tl.q('B')*.25);
+  add('SLOVACCHIA', top.q('W')*2.0 + midH.q('B')*2.0 + bottom.q('R')*2.0 + left.q('R')*.25);
+  add('CROAZIA', top.q('R')*1.7 + midH.q('W')*1.7 + bottom.q('B')*1.7 + center.q('R')*.5 + center.q('W')*.5);
+
+  // Nordic / crosses.
+  add('SCOZIA', q('B')*3.5 + q('W')*1.5 - q('R')*3 - q('Y')*1.8);
+  add('DANIMARCA', q('R')*3.1 + q('W')*1.5 - q('Y')*2 - q('B')*2);
+  add('INGHILTERRA', q('W')*3.1 + q('R')*1.5 - q('B')*1.7 - q('Y')*1.2);
+  add('SVEZIA', q('B')*2.6 + q('Y')*1.7 - q('R')*2);
+  add('FINLANDIA', q('W')*2.6 + q('B')*1.5 - q('R')*1.5 - q('Y')*1.2);
+  add('NORVEGIA', q('R')*2.5 + q('B')*.8 + q('W')*.5 - q('Y')*1.5);
+  add('ISLANDA', q('B')*2.5 + q('R')*.8 + q('W')*.6 - q('Y')*1.5);
+
+  // Grecia: blue/white striped family.
+  add('GRECIA', q('B')*2.5 + q('W')*2.0 - q('R')*2 - q('Y')*1.5);
+
+  // Svizzera: red field, white center cross.
+  add('SVIZZERA', q('R')*3.2 + center.q('W')*1.6 - q('Y')*2 - q('B')*2);
+
+  // Albania: red + black.
+  add('ALBANIA', q('R')*3.0 + center.q('K')*1.6 - q('Y')*2 - q('B')*2);
+
+  // Turchia: red + white center.
   add('TURCHIA', q('R')*3.5 + center.q('W')*1.5 - q('Y')*3 - q('B')*3 - q('G')*3);
 
+  // Bosnia: blue + yellow + white.
+  add('BOSNIA ED ERZEGOVINA', q('B')*2.5 + q('Y')*1.6 + q('W')*.7 - q('R')*1.5);
+  add('KOSOVO', q('B')*2.7 + center.q('Y')*1.4 + q('W')*.5 - q('R')*1.5);
+  add('MACEDONIA DEL NORD', q('R')*2.4 + center.q('Y')*1.4 - q('B')*1.7);
+
+  // Georgia: white + red.
+  add('GEORGIA', q('W')*2.8 + q('R')*1.5 - q('B')*1.5 - q('Y')*1.5);
+  add('ARMENIA', top.q('R')*2 + midH.q('B')*2 + bottom.q('Y')*2);
+
+  // ----- AFRICA -----
+  add('MAROCCO', q('R')*3.0 + center.q('G')*1.0 - q('B')*2 - q('Y'));
+  add('ALGERIA', left.q('G')*2.2 + right.q('W')*2.2 + center.q('R')*.8);
+  add('TUNISIA', q('R')*3.0 + center.q('W')*1.1 - q('G')*1.5 - q('B')*2);
+  add('EGITTO', top.q('R')*2 + midH.q('W')*2 + bottom.q('K')*2);
+  add('SENEGAL', left.q('G')*2 + midV.q('Y')*2 + right.q('R')*2 + center.q('G')*.5);
+  add("COSTA D'AVORIO", left.q('Y')*1.8 + midV.q('W')*2 + right.q('G')*2);
+  add('GHANA', top.q('R')*2 + midH.q('Y')*2 + bottom.q('G')*2 + center.q('K')*.5);
+  add('CAMERUN', left.q('G')*2 + midV.q('R')*2 + right.q('Y')*2 + center.q('Y')*.5);
+  add('MALI', left.q('G')*2 + midV.q('Y')*2 + right.q('R')*2);
+  add('GUINEA', left.q('R')*2 + midV.q('Y')*2 + right.q('G')*2);
+  add('NIGERIA', left.q('G')*2.2 + midV.q('W')*2.2 + right.q('G')*2.2);
+  add('SUDAFRICA', q('G')*1.8 + q('R')*1.0 + q('B')*.8 + q('Y')*.7 + q('W')*.7 + q('K')*.4);
+  add('CAPO VERDE', q('B')*2.6 + q('W')*.8 + q('R')*.4 + q('Y')*.4);
+  add('GAMBIA', top.q('R')*1.8 + midH.q('B')*1.8 + bottom.q('G')*1.8 + q('W')*.5);
+  add('BURKINA FASO', top.q('R')*2 + bottom.q('G')*2 + center.q('Y')*.8);
+  add('GABON', top.q('G')*2 + midH.q('Y')*2 + bottom.q('B')*2);
+  add('ANGOLA', top.q('R')*2 + bottom.q('K')*2 + center.q('Y')*.5);
+
+  // RD Congo / Congo.
+  add('REPUBBLICA DEMOCRATICA DEL CONGO', q('B')*2.0 + q('R')*.9 + q('Y')*.8);
+  add('CONGO', top.q('G')*1.8 + midH.q('Y')*1.8 + bottom.q('R')*1.8);
+
+  // ----- AMERICHE -----
+  add('STATI UNITI', q('R')*1.6 + q('W')*1.5 + tl.q('B')*1.5);
+  add('CANADA', left.q('R')*2 + midV.q('W')*2 + right.q('R')*2 + center.q('R')*.5);
+  add('MESSICO', left.q('G')*2 + midV.q('W')*2 + right.q('R')*2 + center.q('K')*.15);
+  add('URUGUAY', q('W')*2.0 + q('B')*1.7 + tl.q('Y')*.4);
+  add('PARAGUAY', top.q('R')*2 + midH.q('W')*2 + bottom.q('B')*2);
+  add('CILE', top.q('W')*1.6 + bottom.q('R')*2 + tl.q('B')*1.6);
+  add('PERÙ', left.q('R')*2 + midV.q('W')*2 + right.q('R')*2);
+  add('ECUADOR', top.q('Y')*2.3 + midH.q('B')*1.5 + bottom.q('R')*1.6);
+  add('VENEZUELA', top.q('Y')*2 + midH.q('B')*1.7 + bottom.q('R')*1.7);
+  add('BOLIVIA', top.q('R')*2 + midH.q('Y')*2 + bottom.q('G')*2);
+  add('COSTA RICA', top.q('B')*1.4 + midH.q('R')*2 + bottom.q('B')*1.4 + q('W')*.7);
+  add('PANAMA', q('W')*2.0 + q('R')*.9 + q('B')*.9);
+  add('GIAMAICA', q('K')*2.0 + q('G')*1.4 + q('Y')*.8);
+  add('BRASILE', q('G')*2.8 + q('Y')*2.0 + q('B')*.8 - q('R'));
+
+  // ----- ASIA / OCEANIA -----
+  add('GIAPPONE', q('W')*2.8 + center.q('R')*1.8 - q('B')*1.5 - q('Y')*1.5);
+  add('COREA DEL SUD', q('W')*2.2 + center.q('R')*.7 + center.q('B')*.7 + q('K')*.4);
+  add('CINA', q('R')*3.0 + tl.q('Y')*.8 - q('B')*2 - q('G')*2);
+  add('AUSTRALIA', q('B')*2.5 + q('W')*.7 + q('R')*.4);
+  add('NUOVA ZELANDA', q('B')*2.7 + q('R')*.4 + q('W')*.3);
+  add('IRAN', top.q('G')*2 + midH.q('W')*2 + bottom.q('R')*2);
+  add('IRAQ', top.q('R')*2 + midH.q('W')*2 + bottom.q('K')*2 + center.q('G')*.4);
+  add('ARABIA SAUDITA', q('G')*3.0 + center.q('W')*.7 - q('R')*2 - q('B')*2);
+  add('QATAR', left.q('W')*1.7 + right.q('R')*2.4 - q('B')*2 - q('G')*2);
+  add('ISRAELE', q('W')*2.6 + q('B')*1.2 - q('R')*1.5 - q('Y')*1.5);
+
+  // Existing South American.
+  add('ARGENTINA', top.q('B')*2 + midH.q('W')*2.3 + bottom.q('B')*2 - q('R')*2);
+  add('COLOMBIA', top.q('Y')*2.4 + midH.q('B')*1.5 + bottom.q('R')*1.6);
+
   scores.sort((a,b)=>b[1]-a[1]);
-  const [best,score]=scores[0]||['',0];
+  if(!scores.length)return '';
+
+  const [best,score]=scores[0];
   const second=scores[1]?.[1]??0;
 
-  if(score<1.70 || score-second<.20)return '';
+  // Confidence stricter than V32: wrong nation is worse than blank.
+  if(score<1.72)return '';
+  if(score-second<.16)return '';
 
-  // Hard signatures for the most frequent false-positive pairs.
-  if(best==='GERMANIA' && !(q('K')>.10&&q('R')>.18&&q('Y')>.10))return '';
-  if(best==='SPAGNA' && !(q('R')>.18&&q('Y')>.18))return '';
-  if(best==='SCOZIA' && !(q('B')>.38&&q('W')>.10&&q('R')<.05))return '';
-  if(best==='TURCHIA' && !(q('R')>.55&&q('W')>.10&&q('Y')<.04&&q('B')<.04))return '';
-  if(best==='DANIMARCA' && !(q('R')>.36&&q('W')>.12&&q('Y')<.05))return '';
+  // Hard guards for common/confusable families.
+  if(best==='GERMANIA' && !(q('K')>.08&&q('R')>.14&&q('Y')>.08))return '';
+  if(best==='SPAGNA' && !(q('R')>.15&&q('Y')>.13))return '';
+  if(best==='SCOZIA' && !(q('B')>.30&&q('W')>.07&&q('R')<.08))return '';
+  if(best==='TURCHIA' && !(q('R')>.45&&q('W')>.07&&q('Y')<.07&&q('B')<.07))return '';
+  if(best==='MAROCCO' && !(q('R')>.45&&q('G')>.005))return '';
+  if(best==='GIAPPONE' && !(q('W')>.40&&center.q('R')>.07))return '';
+  if(best==='CAMERUN' && !(q('G')>.08&&q('R')>.08&&q('Y')>.07))return '';
+  if(best==='PORTOGALLO' && !(q('G')>.08&&q('R')>.18))return '';
 
   return best;
 }
