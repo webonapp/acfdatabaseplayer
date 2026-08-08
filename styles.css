@@ -75,3 +75,22 @@ body.auth-locked{overflow:hidden}
   .auth-card{padding:20px}.auth-brand img{width:68px;height:68px}
   .auth-brand-title{font-size:23px}
 }
+
+
+/* ===== BATCH CARD IMPORT V11 ===== */
+.batch-queue{margin:14px 0 4px;border:1px solid var(--line);border-radius:12px;background:#faf8fd;padding:12px}
+.batch-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px;color:var(--violet);font-size:11px}
+.batch-head>div{display:flex;align-items:center;gap:8px}
+.batch-head span{color:var(--muted);font-weight:700}
+.batch-clear{border:0;background:none;color:#8b8392;font-size:9px;font-weight:800}
+.batch-list{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
+.batch-item{min-width:112px;max-width:112px;border:1px solid var(--line);border-radius:10px;background:#fff;padding:7px}
+.batch-item.active{border-color:#63349a;box-shadow:0 0 0 2px rgba(99,52,154,.10)}
+.batch-thumb{width:100%;height:72px;object-fit:cover;border-radius:7px;background:#eee;display:block}
+.batch-name{margin-top:6px;font-size:8px;color:#655f69;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.batch-status{margin-top:4px;font-size:8px;font-weight:800;color:var(--muted)}
+.batch-status.done{color:#178a57}.batch-status.error{color:#b22d2d}.batch-status.processing{color:var(--violet)}
+.batch-review-nav{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;margin:12px 0 2px}
+.review-position{text-align:center;color:var(--violet);font-size:11px;font-weight:800}
+.batch-review-nav button{padding:8px 11px}
+@media(max-width:760px){.batch-review-nav{grid-template-columns:1fr 1fr}.review-position{grid-column:1/-1;grid-row:1}.batch-review-nav button{grid-row:2}}

@@ -47,7 +47,12 @@ function selectFile(f){
  $('cardPreview').classList.remove('hidden');
  $('processCardBtn').disabled=false;
 }
-function resetImport(){selectedFile=null;$('cardFile').value='';$('cardPreview').classList.add('hidden');$('processCardBtn').disabled=true;$('ocrProgress').classList.add('hidden');$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden');$('progressFill').style.width='0%'}
+function resetImport(){
+ selectedFiles=[];batchResults=[];currentBatchIndex=0;batchMode=false;
+ if($('batchQueue'))$('batchQueue').classList.add('hidden');
+ if($('batchReviewNav'))$('batchReviewNav').classList.add('hidden');
+ if($('archiveAllBtn'))$('archiveAllBtn').classList.add('hidden');
+ if($('archivePlayerBtn'))$('archivePlayerBtn').textContent='ARCHIVIA GIOCATORE';selectedFile=null;$('cardFile').value='';$('cardPreview').classList.add('hidden');$('processCardBtn').disabled=true;$('ocrProgress').classList.add('hidden');$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden');$('progressFill').style.width='0%'}
 $('restartImportBtn').onclick=()=>{$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden')};
 $('processCardBtn').onclick=processCard;
 
@@ -136,6 +141,7 @@ function detectFlagNationality(img){
  if(G/T>.12&&W/T>.08&&R/T>.08)return'ITALIA';if(B/T>.10&&W/T>.10&&R/T>.08)return'FRANCIA';if(K/T>.07&&R/T>.10&&Y/T>.07)return'GERMANIA';if(R/T>.18&&Y/T>.06)return'SPAGNA';return'';
 }
 async function processCard(){
+ if(batchMode){return processBatchCards();}
  if(!selectedFile)return;
  $('ocrProgress').classList.remove('hidden');
  $('processCardBtn').disabled=true;
@@ -213,6 +219,33 @@ async function ensureWriteSession(){
  return data.session;
 }
 async function archiveImportedPlayer(){
+ if(batchMode){
+   saveCurrentReviewToBatch();
+   const item=batchResults[currentBatchIndex];
+   if(!item?.parsed)return alert('Dati card non disponibili.');
+   const btn=$('archivePlayerBtn');const old=btn.textContent;
+   btn.disabled=true;btn.textContent='ARCHIVIAZIONE...';
+   try{
+     await archiveParsedPlayer(item.parsed);
+     item.status='archived';
+     const next=batchResults.findIndex((x,i)=>i>currentBatchIndex&&x?.parsed&&x.status!=='archived');
+     if(next>=0){
+       showBatchReview(next);
+     }else{
+       await loadAll();
+       closeModal('importModal');
+       resetImport();
+       showView('players');
+       alert('CARD ARCHIVIATE.');
+     }
+   }catch(err){
+     console.error(err);alert(err?.message||'Errore durante l’archiviazione.');
+   }finally{
+     btn.disabled=false;btn.textContent=old;
+   }
+   return;
+ }
+
  if(!db){alert('Supabase non configurato.');return;}
  const btn=$('archivePlayerBtn') || $('importReview').querySelector('button:last-child');
  const oldText=btn ? btn.textContent : 'ARCHIVIA GIOCATORE';
@@ -281,7 +314,54 @@ async function archiveImportedPlayer(){
    if(btn){btn.disabled=false;btn.textContent=oldText;}
  }
 }
-$('importReview').addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();await archiveImportedPlayer();});populateCountrySelects();
+
+$('prevCardBtn')?.addEventListener('click',()=>{
+  saveCurrentReviewToBatch();
+  showBatchReview(currentBatchIndex-1);
+});
+$('nextCardBtn')?.addEventListener('click',()=>{
+  saveCurrentReviewToBatch();
+  showBatchReview(currentBatchIndex+1);
+});
+$('clearBatchBtn')?.addEventListener('click',resetImport);
+
+$('archiveAllBtn')?.addEventListener('click',async()=>{
+  if(!batchMode)return;
+  saveCurrentReviewToBatch();
+  const btn=$('archiveAllBtn');
+  const old=btn.textContent;
+  btn.disabled=true;
+  btn.textContent='ARCHIVIAZIONE...';
+
+  let ok=0,fail=0;
+  try{
+    for(let i=0;i<batchResults.length;i++){
+      const item=batchResults[i];
+      if(!item?.parsed){fail++;continue;}
+      try{
+        await archiveParsedPlayer(item.parsed);
+        item.status='archived';
+        ok++;
+      }catch(err){
+        console.error('Batch archive',i,err);
+        item.status='error';
+        item.error=err?.message||String(err);
+        fail++;
+      }
+    }
+    await loadAll();
+    closeModal('importModal');
+    resetImport();
+    showView('players');
+    alert(`ARCHIVIAZIONE COMPLETATA: ${ok} giocatori salvati${fail?`, ${fail} non salvati`:''}.`);
+  }finally{
+    btn.disabled=false;
+    btn.textContent=old;
+  }
+});
+
+$('importReview').addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();
+ if(batchMode){saveCurrentReviewToBatch();}await archiveImportedPlayer();});populateCountrySelects();
 
 $('loginForm').addEventListener('submit',async e=>{
   e.preventDefault();

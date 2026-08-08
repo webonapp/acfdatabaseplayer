@@ -38,3 +38,13 @@ Configurazione Supabase consigliata:
 
 Il frontend usa `supabase.auth.signInWithPassword()`.
 La sessione viene conservata dal client Supabase nel browser e il logout usa `supabase.auth.signOut()`.
+
+
+## V11 - Importazione multipla card
+- È possibile selezionare o trascinare più card contemporaneamente.
+- La lettura OCR della singola card NON è stata modificata.
+- Le card vengono processate in sequenza per evitare blocchi del browser.
+- Dopo la lettura è possibile scorrere le card, correggere i dati e:
+  - archiviare la card corrente;
+  - archiviare tutte le card in batch.
+- Le immagini originali restano temporanee nel browser e non vengono archiviate.
