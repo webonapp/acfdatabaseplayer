@@ -1,4 +1,5 @@
-const $=id=>document.getElementById(id);const cfg=window.APP_CONFIG||{};const configured=cfg.SUPABASE_URL&&!cfg.SUPABASE_URL.includes('INSERISCI_QUI')&&cfg.SUPABASE_PUBLISHABLE_KEY&&!cfg.SUPABASE_PUBLISHABLE_KEY.includes('INSERISCI_QUI');let db=configured?window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_PUBLISHABLE_KEY):null,teams=[],players=[],selectedFile=null;if(!configured)$('setupBanner').classList.remove('hidden');
+const $=id=>document.getElementById(id);const cfg=window.APP_CONFIG||{};const configured=cfg.SUPABASE_URL&&!cfg.SUPABASE_URL.includes('INSERISCI_QUI')&&cfg.SUPABASE_PUBLISHABLE_KEY&&!cfg.SUPABASE_PUBLISHABLE_KEY.includes('INSERISCI_QUI');let db=configured?window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_PUBLISHABLE_KEY):null,teams=[],players=[],selectedFile=null;
+let selectedFiles=[],batchResults=[],currentBatchIndex=0,batchMode=false;if(!configured)$('setupBanner').classList.remove('hidden');
 
 let currentSession=null;
 let authBooted=false;
@@ -131,6 +132,26 @@ function populateCountrySelects(){
  if($('nationality')){const v=$('nationality').value;$('nationality').innerHTML=countryOptions(false);$('nationality').value=v}
 }
 
+
+function upper(v){return String(v??'').toUpperCase().trim()}
+function resolveNationality(v){
+  const raw=String(v??'').trim();
+  if(!raw)return '';
+  const aliases={
+    'DENMARK':'DANIMARCA','DANMARK':'DANIMARCA',
+    'ITALY':'ITALIA','SPAIN':'SPAGNA','FRANCE':'FRANCIA','GERMANY':'GERMANIA',
+    'CROATIA':'CROAZIA','ENGLAND':'INGHILTERRA','UNITED KINGDOM':'REGNO UNITO',
+    'NETHERLANDS':'PAESI BASSI','HOLLAND':'PAESI BASSI','PORTUGAL':'PORTOGALLO',
+    'BRAZIL':'BRASILE','TURKEY':'TURCHIA','SWITZERLAND':'SVIZZERA',
+    'BELGIUM':'BELGIO','NORWAY':'NORVEGIA','SWEDEN':'SVEZIA','POLAND':'POLONIA',
+    'UKRAINE':'UCRAINA','USA':'STATI UNITI','UNITED STATES':'STATI UNITI',
+    'MOROCCO':'MAROCCO','CAMEROON':'CAMERUN','IVORY COAST':"COSTA D'AVORIO"
+  };
+  const target=upper(aliases[upper(raw)]||raw);
+  const found=COUNTRIES.find(([,name])=>norm(name)===norm(target));
+  return found?found[1]:target;
+}
+
 function age(y){if(!y)return'';const d=new Date(),b=new Date(d.getFullYear(),2,1);return d.getFullYear()-Number(y)-(d<b?1:0)}function tags(v){return Array.isArray(v)?v:[]}function norm(v){return String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()}function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}function initials(p){return`${(p.first_name||'')[0]||''}${(p.last_name||'')[0]||''}`}
 async function loadAll(){if(!db||!currentSession)return;const{data:t,error:te}=await db.from('teams').select('*').order('name');if(te)throw te;teams=t||[];const{data:p,error:pe}=await db.from('players').select('*, teams(name)').order('updated_at',{ascending:false});if(pe)throw pe;players=p||[];populateFilters();renderDashboard();renderPlayersPage();renderTeamsPage();renderStats()}
 function preserve(id,a,l){const e=$(id),v=e.value;e.innerHTML=`<option value="">${l}</option>`+a.map(x=>`<option>${esc(x)}</option>`).join('');e.value=v}
@@ -151,10 +172,203 @@ function showView(n){document.querySelectorAll('.view').forEach(v=>v.classList.r
 function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));['importCardBtn','playersImportBtn','settingsImportBtn'].forEach(id=>$(id).onclick=()=>{resetImport();openModal('importModal')});$('manualTeamBtn').onclick=()=>openModal('teamModal');
 $('teamForm').onsubmit=async e=>{e.preventDefault();if(!db)return;const{error}=await db.from('teams').insert({name:$('teamName').value.trim(),country:$('teamCountry').value.trim(),competition:$('teamCompetition').value.trim()});if(error)return alert(error.message);$('teamForm').reset();closeModal('teamModal');await loadAll()};
 function normalizeRole(v){const n=norm(v);if(n.includes('dif')||n.includes('terz')||n.includes('bracc'))return'DIFENSORE';if(n.includes('centr')||n.includes('mezz')||n.includes('med')||n.includes('trequart'))return'CENTROCAMPISTA';return'ATTACCANTE'}
-window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamId').value=p.team_id||'';$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=p.foot==='SX'?'SX':'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=p.nationality||'';$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{e.preventDefault();const p={first_name:$('firstName').value.trim(),last_name:$('lastName').value.trim(),team_id:$('teamId').value,number:$('number').value?+$('number').value:null,role:$('role').value,position:$('position').value.trim(),height:$('height').value?+$('height').value:null,foot:$('foot').value,birth_year:$('birthYear').value?+$('birthYear').value:null,nationality:$('nationality').value.trim(),strengths:$('strengths').value.split(',').map(x=>x.trim()).filter(Boolean),weaknesses:$('weaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),notes:$('notes').value.trim(),updated_at:new Date().toISOString()};const{error}=await db.from('players').update(p).eq('id',$('playerId').value);if(error)return alert(error.message);closeModal('playerModal');await loadAll()};window.deletePlayer=async id=>{if(!confirm('Eliminare questo giocatore?'))return;const{error}=await db.from('players').delete().eq('id',id);if(error)return alert(error.message);await loadAll()};window.openTeamPlayers=id=>{showView('players');const t=teams.find(x=>String(x.id)===String(id));if(t)$('playersSearch').value=t.name;renderPlayersPage()};
-$('cardFile').onchange=e=>selectFile(e.target.files?.[0]);
+window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamId').value=p.team_id||'';$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=p.foot==='SX'?'SX':'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=resolveNationality(p.nationality||'');$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{e.preventDefault();const p={first_name:upper($('firstName').value),last_name:upper($('lastName').value),team_id:$('teamId').value,number:$('number').value?+$('number').value:null,role:upper($('role').value),position:upper($('position').value),height:$('height').value?+$('height').value:null,foot:$('foot').value,birth_year:$('birthYear').value?+$('birthYear').value:null,nationality:resolveNationality($('nationality').value),strengths:$('strengths').value.split(',').map(upper).filter(Boolean),weaknesses:$('weaknesses').value.split(',').map(upper).filter(Boolean),notes:upper($('notes').value),updated_at:new Date().toISOString()};const{error}=await db.from('players').update(p).eq('id',$('playerId').value);if(error)return alert(error.message);closeModal('playerModal');await loadAll()};window.deletePlayer=async id=>{if(!confirm('Eliminare questo giocatore?'))return;const{error}=await db.from('players').delete().eq('id',id);if(error)return alert(error.message);await loadAll()};window.openTeamPlayers=id=>{showView('players');const t=teams.find(x=>String(x.id)===String(id));if(t)$('playersSearch').value=t.name;renderPlayersPage()};
+$('cardFile').onchange=e=>selectFiles(Array.from(e.target.files||[]));
 $('dropzone').ondragover=e=>e.preventDefault();
-$('dropzone').ondrop=e=>{e.preventDefault();selectFile(e.dataTransfer.files?.[0])};
+$('dropzone').ondrop=e=>{e.preventDefault();selectFiles(Array.from(e.dataTransfer.files||[]))};
+
+function selectFiles(files){
+  const good=(files||[]).filter(f=>f&&f.type&&f.type.startsWith('image/'));
+  if(!good.length)return;
+  selectedFiles=good;
+  batchMode=good.length>1;
+  batchResults=[];
+  currentBatchIndex=0;
+
+  if(batchMode){
+    selectedFile=good[0];
+    $('cardPreview').src=URL.createObjectURL(selectedFile);
+    $('cardPreview').classList.remove('hidden');
+    $('processCardBtn').disabled=false;
+    $('processCardBtn').textContent=`ELABORA ${good.length} CARD`;
+    renderBatchQueueSimple();
+  }else{
+    selectFile(good[0]);
+  }
+}
+
+function renderBatchQueueSimple(){
+  if(!$('batchQueue'))return;
+  $('batchQueue').classList.toggle('hidden',!batchMode);
+  if(!batchMode)return;
+  $('batchCounter').textContent=`${selectedFiles.length} CARD`;
+  $('batchList').innerHTML=selectedFiles.map((f,i)=>`
+    <div class="batch-item ${i===currentBatchIndex?'active':''}">
+      <img class="batch-thumb" src="${URL.createObjectURL(f)}" alt="">
+      <div class="batch-name">${esc(f.name)}</div>
+      <div class="batch-status">${batchResults[i]?.status==='done'?'LETTA':batchResults[i]?.status==='error'?'ERRORE':'PRONTA'}</div>
+    </div>`).join('');
+}
+
+function captureImportForm(){
+  return {
+    first:upper($('iFirstName').value),
+    last:upper($('iLastName').value),
+    team:upper($('iTeam').value),
+    number:$('iNumber').value,
+    role:upper($('iRole').value),
+    position:upper($('iPosition').value),
+    height:$('iHeight').value,
+    foot:upper($('iFoot').value),
+    year:$('iBirthYear').value,
+    nationality:resolveNationality($('iNationality').value),
+    strengths:$('iStrengths').value.split(',').map(upper).filter(Boolean),
+    weaknesses:$('iWeaknesses').value.split(',').map(upper).filter(Boolean)
+  };
+}
+
+function saveCurrentReviewToBatch(){
+  if(!batchMode||!batchResults[currentBatchIndex])return;
+  batchResults[currentBatchIndex].parsed=captureImportForm();
+}
+
+function renderCardTabs(){
+  if(!$('cardTabsWrap')||!$('cardTabs'))return;
+  $('cardTabsWrap').classList.toggle('hidden',!batchMode);
+  if(!batchMode)return;
+  $('cardTabs').innerHTML=batchResults.map((item,i)=>{
+    const p=item?.parsed||{};
+    const label=((p.last||'')+' '+(p.first||'')).trim()||`CARD ${i+1}`;
+    const cls=item?.status==='archived'?'archived':item?.status==='error'?'error':'';
+    const state=item?.status==='archived'?'✓':item?.status==='error'?'!':'';
+    return `<button type="button" class="card-tab ${i===currentBatchIndex?'active':''} ${cls}" data-card-tab="${i}">
+      <span class="card-tab-number">${i+1}</span>
+      <span class="card-tab-name">${esc(label)}</span>
+      <span class="card-tab-state">${state}</span>
+    </button>`;
+  }).join('');
+  document.querySelectorAll('[data-card-tab]').forEach(tab=>{
+    tab.onclick=()=>{
+      saveCurrentReviewToBatch();
+      const i=Number(tab.dataset.cardTab);
+      if(batchResults[i]?.parsed){
+        currentBatchIndex=i;
+        fillImport(batchResults[i].parsed);
+        renderCardTabs();
+      }
+    };
+  });
+}
+
+function showBatchReview(i){
+  if(!batchMode||!batchResults[i]?.parsed)return;
+  currentBatchIndex=i;
+  fillImport(batchResults[i].parsed);
+  renderCardTabs();
+  renderBatchQueueSimple();
+}
+
+async function readCardFileExact(file,index,total){
+  let worker=null;
+  try{
+    const img=await loadImage(file);
+    worker=await Tesseract.createWorker('eng',1,{
+      logger:m=>{
+        if(m.status==='recognizing text'){
+          const pct=Math.round((m.progress||0)*100);
+          $('progressText').textContent=`CARD ${index+1}/${total} · LETTURA ${pct}%`;
+          $('progressFill').style.width=Math.round(((index+(m.progress||0))/total)*100)+'%';
+        }
+      }
+    });
+    const keys=['role','first','last','team','number','height','foot','year','strengths','weaknesses'];
+    const raw={};
+    for(const key of keys) raw[key]=await readRegion(worker,img,key);
+
+    return {
+      first:upper(cleanFieldText(raw.first)),
+      last:upper(cleanFieldText(raw.last)),
+      team:upper(cleanFieldText(raw.team)),
+      number:cleanDigits(raw.number).slice(0,2),
+      role:upper(normalizeCardRole(raw.role)),
+      position:'',
+      height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
+      foot:/SX/i.test(raw.foot)?'SX':'DX',
+      year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
+      nationality:resolveNationality(detectFlagNationality(img)),
+      strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).map(upper).filter(Boolean),
+      weaknesses:cleanMulti(raw.weaknesses).split('\n').map(cleanFieldText).map(upper).filter(Boolean)
+    };
+  }finally{
+    if(worker)try{await worker.terminate()}catch(_){}
+  }
+}
+
+async function processBatchCards(){
+  if(!selectedFiles.length)return;
+  $('ocrProgress').classList.remove('hidden');
+  $('processCardBtn').disabled=true;
+  batchResults=new Array(selectedFiles.length);
+
+  for(let i=0;i<selectedFiles.length;i++){
+    currentBatchIndex=i;
+    batchResults[i]={status:'processing',parsed:null};
+    renderBatchQueueSimple();
+    try{
+      const parsed=await readCardFileExact(selectedFiles[i],i,selectedFiles.length);
+      batchResults[i]={status:'done',parsed};
+    }catch(err){
+      console.error(err);
+      batchResults[i]={status:'error',parsed:null,error:err?.message||String(err)};
+    }
+  }
+
+  const first=batchResults.findIndex(x=>x?.parsed);
+  $('processCardBtn').disabled=false;
+  if(first<0){
+    alert('NON È STATO POSSIBILE LEGGERE NESSUNA CARD.');
+    return;
+  }
+  $('uploadStage').classList.add('hidden');
+  $('importReview').classList.remove('hidden');
+  showBatchReview(first);
+}
+
+async function archiveParsedPlayer(parsed){
+  await ensureWriteSession();
+  const teamName=upper(parsed.team);
+  if(!teamName)throw new Error('LA SQUADRA È OBBLIGATORIA.');
+
+  let team=teams.find(t=>norm(t.name)===norm(teamName));
+  if(!team){
+    const {data,error}=await db.from('teams').insert({name:teamName,country:'',competition:''}).select().single();
+    if(error)throw error;
+    team=data;
+    teams.push(team);
+  }
+
+  const payload={
+    first_name:upper(parsed.first),
+    last_name:upper(parsed.last),
+    team_id:team.id,
+    number:parsed.number!==''?Number(parsed.number):null,
+    role:upper(parsed.role||'ATTACCANTE'),
+    position:upper(parsed.position),
+    height:parsed.height!==''?Number(parsed.height):null,
+    foot:upper(parsed.foot||'DX'),
+    birth_year:parsed.year!==''?Number(parsed.year):null,
+    nationality:resolveNationality(parsed.nationality),
+    strengths:(parsed.strengths||[]).map(upper),
+    weaknesses:(parsed.weaknesses||[]).map(upper),
+    notes:'IMPORTATO AUTOMATICAMENTE DA CARD',
+    updated_at:new Date().toISOString()
+  };
+  if(!payload.first_name||!payload.last_name)throw new Error('NOME E COGNOME SONO OBBLIGATORI.');
+  const {data,error}=await db.from('players').insert(payload).select('*, teams(name)').single();
+  if(error)throw error;
+  return data;
+}
+
 function selectFile(f){
  if(!f||!f.type.startsWith('image/'))return;
  selectedFile=f;
@@ -164,24 +378,26 @@ function selectFile(f){
 }
 function resetImport(){
  selectedFiles=[];batchResults=[];currentBatchIndex=0;batchMode=false;
+ if($('cardTabsWrap'))$('cardTabsWrap').classList.add('hidden');
+ selectedFiles=[];batchResults=[];currentBatchIndex=0;batchMode=false;
  if($('batchQueue'))$('batchQueue').classList.add('hidden');
- if($('batchReviewNav'))$('batchReviewNav').classList.add('hidden');
- if($('archiveAllBtn'))$('archiveAllBtn').classList.add('hidden');
+ 
+ 
  if($('archivePlayerBtn'))$('archivePlayerBtn').textContent='ARCHIVIA GIOCATORE';selectedFile=null;$('cardFile').value='';$('cardPreview').classList.add('hidden');$('processCardBtn').disabled=true;$('ocrProgress').classList.add('hidden');$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden');$('progressFill').style.width='0%'}
 $('restartImportBtn').onclick=()=>{$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden')};
 $('processCardBtn').onclick=processCard;
 
-async function importDashboardFile(file){
- if(!file||!file.type.startsWith('image/'))return;
- resetImport();openModal('importModal');selectFile(file);
- // Salta upload + click su elabora: parte subito.
+async function importDashboardFiles(files){
+ const good=(files||[]).filter(f=>f&&f.type&&f.type.startsWith('image/'));
+ if(!good.length)return;
+ resetImport();openModal('importModal');selectFiles(good);
  await new Promise(r=>setTimeout(r,80));processCard();
 }
 const dashboardDrop=$('dashboardImportBtn');
 dashboardDrop.addEventListener('dragenter',e=>{e.preventDefault();dashboardDrop.classList.add('drag-active')});
 dashboardDrop.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';dashboardDrop.classList.add('drag-active')});
 dashboardDrop.addEventListener('dragleave',()=>dashboardDrop.classList.remove('drag-active'));
-dashboardDrop.addEventListener('drop',e=>{e.preventDefault();dashboardDrop.classList.remove('drag-active');importDashboardFile(e.dataTransfer.files?.[0])});
+dashboardDrop.addEventListener('drop',e=>{e.preventDefault();dashboardDrop.classList.remove('drag-active');importDashboardFiles(Array.from(e.dataTransfer.files||[]))});
 dashboardDrop.addEventListener('click',()=>{const input=document.createElement('input');input.type='file';input.accept='image/*';input.onchange=()=>importDashboardFile(input.files?.[0]);input.click()});
 
 
@@ -324,7 +540,7 @@ async function processCard(){
    $('processCardBtn').disabled=false;
  }
 }
-function fillImport(p){$('iFirstName').value=p.first||'';$('iLastName').value=p.last||'';$('iTeam').value=p.team||'';$('iNumber').value=p.number||'';$('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'ATTACCANTE';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=p.foot==='SX'?'SX':'DX';$('iBirthYear').value=p.year||'';$('iNationality').value=p.nationality||'';$('iStrengths').value=(p.strengths||[]).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).join(', ')}
+function fillImport(p){$('iFirstName').value=upper(p.first);$('iLastName').value=upper(p.last);$('iTeam').value=upper(p.team);$('iNumber').value=p.number||'';$('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'ATTACCANTE';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=p.foot==='SX'?'SX':'DX';$('iBirthYear').value=p.year||'';$('iNationality').value=resolveNationality(p.nationality||'');$('iStrengths').value=(p.strengths||[]).map(upper).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).map(upper).join(', ')}
 async function ensureWriteSession(){
  if(!db)throw new Error('Supabase non configurato.');
  const {data,error}=await db.auth.getSession();
@@ -343,6 +559,7 @@ async function archiveImportedPlayer(){
    try{
      await archiveParsedPlayer(item.parsed);
      item.status='archived';
+     renderCardTabs();
      const next=batchResults.findIndex((x,i)=>i>currentBatchIndex&&x?.parsed&&x.status!=='archived');
      if(next>=0){
        showBatchReview(next);
@@ -369,7 +586,7 @@ async function archiveImportedPlayer(){
  try{
    await ensureWriteSession();
 
-   const teamName=$('iTeam').value.trim();
+   const teamName=upper($('iTeam').value);
    if(!teamName)throw new Error('Il nome della squadra è obbligatorio.');
 
    let team=teams.find(t=>norm(t.name)===norm(teamName));
@@ -387,18 +604,18 @@ async function archiveImportedPlayer(){
    }
 
    const payload={
-     first_name:$('iFirstName').value.trim(),
-     last_name:$('iLastName').value.trim(),
+     first_name:upper($('iFirstName').value),
+     last_name:upper($('iLastName').value),
      team_id:team.id,
      number:$('iNumber').value ? Number($('iNumber').value) : null,
-     role:$('iRole').value,
-     position:$('iPosition').value.trim(),
+     role:upper($('iRole').value),
+     position:upper($('iPosition').value),
      height:$('iHeight').value ? Number($('iHeight').value) : null,
      foot:$('iFoot').value,
      birth_year:$('iBirthYear').value ? Number($('iBirthYear').value) : null,
-     nationality:$('iNationality').value.trim(),
-     strengths:$('iStrengths').value.split(',').map(x=>x.trim()).filter(Boolean),
-     weaknesses:$('iWeaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),
+     nationality:resolveNationality($('iNationality').value),
+     strengths:$('iStrengths').value.split(',').map(upper).filter(Boolean),
+     weaknesses:$('iWeaknesses').value.split(',').map(upper).filter(Boolean),
      notes:'Importato automaticamente da card',
      updated_at:new Date().toISOString()
    };
@@ -430,50 +647,11 @@ async function archiveImportedPlayer(){
  }
 }
 
-$('prevCardBtn')?.addEventListener('click',()=>{
-  saveCurrentReviewToBatch();
-  showBatchReview(currentBatchIndex-1);
-});
-$('nextCardBtn')?.addEventListener('click',()=>{
-  saveCurrentReviewToBatch();
-  showBatchReview(currentBatchIndex+1);
-});
+
+
 $('clearBatchBtn')?.addEventListener('click',resetImport);
 
-$('archiveAllBtn')?.addEventListener('click',async()=>{
-  if(!batchMode)return;
-  saveCurrentReviewToBatch();
-  const btn=$('archiveAllBtn');
-  const old=btn.textContent;
-  btn.disabled=true;
-  btn.textContent='ARCHIVIAZIONE...';
 
-  let ok=0,fail=0;
-  try{
-    for(let i=0;i<batchResults.length;i++){
-      const item=batchResults[i];
-      if(!item?.parsed){fail++;continue;}
-      try{
-        await archiveParsedPlayer(item.parsed);
-        item.status='archived';
-        ok++;
-      }catch(err){
-        console.error('Batch archive',i,err);
-        item.status='error';
-        item.error=err?.message||String(err);
-        fail++;
-      }
-    }
-    await loadAll();
-    closeModal('importModal');
-    resetImport();
-    showView('players');
-    alert(`ARCHIVIAZIONE COMPLETATA: ${ok} giocatori salvati${fail?`, ${fail} non salvati`:''}.`);
-  }finally{
-    btn.disabled=false;
-    btn.textContent=old;
-  }
-});
 
 $('importReview').addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();
  if(batchMode){saveCurrentReviewToBatch();}await archiveImportedPlayer();});populateCountrySelects();
@@ -511,4 +689,15 @@ $('togglePassword')?.addEventListener('click',()=>{
 
 
 $('logoutBtn')?.addEventListener('click',logout);
+
+document.addEventListener('input',e=>{
+  const el=e.target;
+  if(!el?.closest?.('#playerModal,#importModal,#teamModal'))return;
+  if(!['INPUT','TEXTAREA'].includes(el.tagName))return;
+  if(['email','password','file'].includes(el.type))return;
+  const a=el.selectionStart,b=el.selectionEnd;
+  el.value=el.value.toUpperCase();
+  try{el.setSelectionRange(a,b)}catch(_){}
+});
+
 initializeAuth().catch(e=>{console.error(e);showLogin(e.message)});

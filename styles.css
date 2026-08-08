@@ -94,3 +94,77 @@ body.auth-locked{overflow:hidden}
 .review-position{text-align:center;color:var(--violet);font-size:11px;font-weight:800}
 .batch-review-nav button{padding:8px 11px}
 @media(max-width:760px){.batch-review-nav{grid-template-columns:1fr 1fr}.review-position{grid-column:1/-1;grid-row:1}.batch-review-nav button{grid-row:2}}
+
+
+/* ===== V14 ===== */
+#playerModal input,
+#playerModal textarea,
+#playerModal select,
+#importModal input,
+#importModal textarea,
+#importModal select,
+#teamModal input,
+#teamModal textarea,
+#teamModal select{
+  text-transform:uppercase;
+}
+
+.card-tabs-wrap{
+  margin:12px 0 15px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  border-bottom:1px solid #d8d2df;
+}
+.card-tabs{
+  display:flex;
+  gap:2px;
+  align-items:flex-end;
+  min-width:max-content;
+  padding:0 4px;
+}
+.card-tab{
+  min-width:155px;
+  max-width:235px;
+  height:43px;
+  border:1px solid #d6cfdf;
+  border-bottom:0;
+  border-radius:10px 10px 0 0;
+  background:#ece8f0;
+  color:#6d6672;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:0 12px;
+  font-size:10px;
+  font-weight:800;
+  cursor:pointer;
+  transform:translateY(1px);
+}
+.card-tab.active{
+  background:#fff;
+  color:var(--violet);
+  border-color:#af9ec2;
+}
+.card-tab.archived{
+  color:#147a4c;
+  background:#edf8f2;
+}
+.card-tab.archived.active{background:#fff}
+.card-tab.error{
+  color:#a62f2f;
+  background:#fff0f0;
+}
+.card-tab-number{
+  width:21px;height:21px;
+  flex:0 0 21px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:rgba(53,20,99,.09);
+}
+.card-tab-name{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.card-tab-state{margin-left:auto}

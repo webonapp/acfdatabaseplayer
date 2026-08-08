@@ -68,3 +68,13 @@ In Authentication:
 3. Se usi la creazione manuale, assicurati che l'utente risulti confermato.
 4. Lascia le policy RLS `authenticated` sulle tabelle.
 5. Anonymous Sign-Ins può restare disattivato.
+
+
+## V14
+- Rimossa duplicazione account nella sidebar.
+- Campi giocatore in maiuscolo durante digitazione e salvataggio.
+- Fix nazionalità: riconoscimento card, select con bandiera, salvataggio e riapertura.
+- Multi-card: selezione/drag di più immagini.
+- Ogni card è gestita in una tab stile Chrome.
+- Ogni giocatore viene archiviato singolarmente, con possibilità di modificare la card prima di salvarla.
+- Il lettore OCR e le regioni della card restano invariati rispetto alla versione funzionante.
