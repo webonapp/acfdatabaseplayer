@@ -132,3 +132,26 @@ In Authentication:
 - Refresh automatico del token se vicino alla scadenza.
 - Cache aggiornata a V20.
 - Sintassi JavaScript verificata con Node.
+
+
+## V21 - Deep fix
+Analisi completa del codice V20.
+
+Problemi reali trovati:
+- Il codice chiamava `selectFiles`, `resetImport` e `processBatchCards`, ma queste funzioni non esistevano più.
+- La finestra Importa Card aveva markup HTML corrotto e controlli residui.
+- Il click dipendeva da `input.click()` JavaScript; ora usa il comportamento HTML nativo `<label for="cardFile">`.
+- Il ripristino sessione poteva riportare alla login in caso di errore del database, anche con sessione valida.
+- Il Service Worker poteva mantenere vecchie versioni di app.js.
+
+Correzioni:
+- Un solo file picker globale.
+- Click nativo funzionante da sidebar, Dashboard, Giocatori, Impostazioni e finestra Importa.
+- Drag & drop e click confluiscono nella stessa pipeline.
+- Controller import completamente ricostruito.
+- Multi-card con tab e archiviazione singola mantenuto.
+- OCR e regioni di lettura NON modificati.
+- Sessione Supabase persistente con chiave stabile e migrazione dalla V20.
+- Refresh non forza più il login se la sessione è ancora valida.
+- Service Worker disattivato e cache precedenti eliminate.
+- Validazione JavaScript e controllo HTML eseguiti prima dello ZIP.

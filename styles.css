@@ -187,3 +187,37 @@ body.auth-locked{overflow:hidden}
 #dashboardDrop{cursor:pointer}
 #dashboardDrop:focus{outline:2px solid #6d3aa1;outline-offset:3px}
 .dashboard-choose-btn{margin-top:12px;width:auto}
+
+
+/* ===== V21 DEEP FIX ===== */
+.global-file-input{
+  position:fixed;
+  left:-10000px;
+  top:-10000px;
+  width:1px;
+  height:1px;
+  opacity:0;
+}
+.nav-file-trigger{
+  width:100%;
+  border:0;
+  background:transparent;
+  color:#fff;
+  border-radius:10px;
+  padding:14px 13px;
+  text-align:left;
+  display:flex;
+  gap:13px;
+  align-items:center;
+  font-weight:700;
+  cursor:pointer;
+}
+.nav-file-trigger:hover{background:rgba(255,255,255,.12)}
+.import-file-trigger{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+}
+.dashboard-drop,.dropzone{cursor:pointer}
+.batch-item{cursor:pointer;text-align:left}

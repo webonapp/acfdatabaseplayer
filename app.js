@@ -1,20 +1,35 @@
-const $=id=>document.getElementById(id);const cfg=window.APP_CONFIG||{};const configured=cfg.SUPABASE_URL&&!cfg.SUPABASE_URL.includes('INSERISCI_QUI')&&cfg.SUPABASE_PUBLISHABLE_KEY&&!cfg.SUPABASE_PUBLISHABLE_KEY.includes('INSERISCI_QUI');let db=configured?window.supabase.createClient(
-  cfg.SUPABASE_URL,
-  cfg.SUPABASE_PUBLISHABLE_KEY,
-  {
-    auth:{
-      persistSession:true,
-      autoRefreshToken:true,
-      detectSessionInUrl:true,
-      storage:window.localStorage,
-      storageKey:'player-database-auth-v20'
+const $=id=>document.getElementById(id);
+const cfg=window.APP_CONFIG||{};
+const configured=cfg.SUPABASE_URL&&!cfg.SUPABASE_URL.includes('INSERISCI_QUI')&&cfg.SUPABASE_PUBLISHABLE_KEY&&!cfg.SUPABASE_PUBLISHABLE_KEY.includes('INSERISCI_QUI');
+
+const AUTH_STORAGE_KEY='player-database-auth';
+try{
+  if(!localStorage.getItem(AUTH_STORAGE_KEY)){
+    for(const oldKey of ['player-database-auth-v20','player-database-auth-v18','player-database-auth-v17']){
+      const value=localStorage.getItem(oldKey);
+      if(value){localStorage.setItem(AUTH_STORAGE_KEY,value);break;}
     }
   }
-):null,teams=[],players=[],selectedFile=null;
-let selectedFiles=[],batchResults=[],currentBatchIndex=0,batchMode=false;if(!configured)$('setupBanner').classList.remove('hidden');
+}catch(_){}
 
+let db=configured?window.supabase.createClient(
+  cfg.SUPABASE_URL,
+  cfg.SUPABASE_PUBLISHABLE_KEY,
+  {auth:{
+    persistSession:true,
+    autoRefreshToken:true,
+    detectSessionInUrl:true,
+    storage:window.localStorage,
+    storageKey:AUTH_STORAGE_KEY
+  }}
+):null;
+
+let teams=[],players=[],selectedFile=null;
+let selectedFiles=[],batchResults=[],currentBatchIndex=0,batchMode=false;
 let currentSession=null;
 let authBooted=false;
+
+if(!configured)$('setupBanner')?.classList.remove('hidden');
 
 function setLoginError(message=''){
   const box=$('loginError');
@@ -22,187 +37,109 @@ function setLoginError(message=''){
   box.textContent=message||'';
   box.classList.toggle('hidden',!message);
 }
-
 function showLogin(message=''){
   currentSession=null;
   document.body.classList.add('auth-locked');
   $('authGate')?.classList.remove('hidden');
   setLoginError(message);
-  setTimeout(()=>$('loginEmail')?.focus(),50);
 }
-
 function hideLogin(session){
   currentSession=session||null;
   document.body.classList.remove('auth-locked');
   $('authGate')?.classList.add('hidden');
   setLoginError('');
-  const mail=session?.user?.email||'';
-  if($('sideAccountEmail')) $('sideAccountEmail').textContent=mail;
+  if($('sideAccountEmail'))$('sideAccountEmail').textContent=session?.user?.email||'';
 }
-
 async function loginWithPassword(email,password){
-  if(!db) throw new Error('Supabase non configurato.');
-  if(!email) throw new Error('Inserisci l’email.');
-  if(!password) throw new Error('Inserisci la password.');
-
-  const {data,error}=await db.auth.signInWithPassword({
-    email:email.trim(),
-    password
-  });
-
+  if(!db)throw new Error('SUPABASE NON CONFIGURATO.');
+  if(!email)throw new Error('INSERISCI L’EMAIL.');
+  if(!password)throw new Error('INSERISCI LA PASSWORD.');
+  const {data,error}=await db.auth.signInWithPassword({email:email.trim(),password});
   if(error){
-    if(error.message?.toLowerCase().includes('invalid login credentials')){
-      throw new Error('Email o password non corretti.');
-    }
-    if(error.message?.toLowerCase().includes('email not confirmed')){
-      throw new Error('Email non confermata su Supabase.');
-    }
+    if(String(error.message).toLowerCase().includes('invalid login credentials'))throw new Error('EMAIL O PASSWORD NON CORRETTI.');
     throw error;
   }
-
-  if(!data?.session) throw new Error('Accesso non completato.');
+  if(!data?.session)throw new Error('ACCESSO NON COMPLETATO.');
   return data.session;
 }
-
 async function logout(){
   if(!db)return;
   const {error}=await db.auth.signOut();
-  if(error){
-    alert('Errore logout: '+error.message);
-    return;
-  }
-  currentSession=null;
-  teams=[];
-  players=[];
+  if(error)return alert(error.message);
   showLogin();
 }
-
 async function initializeAuth(){
   if(authBooted)return;
   authBooted=true;
-
-  if(!db){
-    showLogin('Supabase non configurato.');
-    return;
-  }
+  if(!db){showLogin('SUPABASE NON CONFIGURATO.');return;}
 
   try{
-    // Supabase restores the saved session from localStorage.
     const {data,error}=await db.auth.getSession();
     if(error)throw error;
-
-    let session=data?.session||null;
-
-    // If a saved session exists but its access token is near expiry,
-    // refresh it before loading the database.
-    if(session){
-      const expiresAt=Number(session.expires_at||0)*1000;
-      if(expiresAt && expiresAt-Date.now()<60000){
-        const refreshed=await db.auth.refreshSession();
-        if(refreshed.error)throw refreshed.error;
-        session=refreshed.data?.session||session;
-      }
-    }
+    const session=data?.session||null;
 
     if(session){
       hideLogin(session);
-      await loadAll();
+      try{
+        await loadAll();
+      }catch(dbErr){
+        console.error('DATABASE LOAD ERROR',dbErr);
+        alert('SESSIONE RIPRISTINATA. ERRORE CARICAMENTO DATABASE: '+(dbErr?.message||dbErr));
+      }
     }else{
       showLogin();
     }
 
-    db.auth.onAuthStateChange((event,nextSession)=>{
-      if(event==='SIGNED_OUT'){
-        currentSession=null;
-        showLogin();
-        return;
-      }
-
-      if(nextSession){
-        currentSession=nextSession;
-        hideLogin(nextSession);
-      }
+    db.auth.onAuthStateChange((event,session)=>{
+      if(event==='SIGNED_OUT'){showLogin();return;}
+      if(session)hideLogin(session);
     });
-
   }catch(err){
     console.error('AUTH INIT ERROR',err);
-    showLogin(err?.message||'ERRORE DURANTE IL RIPRISTINO DELLA SESSIONE.');
+    showLogin(err?.message||'ERRORE RIPRISTINO SESSIONE.');
   }
 }
-
 async function ensureWriteSession(){
-  if(!db) throw new Error('Supabase non configurato.');
+  if(!db)throw new Error('SUPABASE NON CONFIGURATO.');
   const {data,error}=await db.auth.getSession();
-  if(error) throw error;
+  if(error)throw error;
   if(!data?.session){
-    showLogin('Sessione scaduta. Effettua nuovamente il login.');
-    throw new Error('Sessione scaduta.');
+    showLogin('SESSIONE SCADUTA. EFFETTUA NUOVAMENTE IL LOGIN.');
+    throw new Error('SESSIONE SCADUTA.');
   }
   currentSession=data.session;
   return data.session;
 }
 
+(function bindAuth(){
+  $('loginForm')?.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const btn=$('loginBtn');
+    if(btn){btn.disabled=true;btn.textContent='ACCESSO...';}
+    try{
+      const session=await loginWithPassword($('loginEmail')?.value||'',$('loginPassword')?.value||'');
+      hideLogin(session);
+      if($('loginPassword'))$('loginPassword').value='';
+      await loadAll();
+    }catch(err){
+      console.error(err);
+      showLogin(err?.message||'ERRORE LOGIN.');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='ACCEDI';}
+    }
+  });
 
-/*
- * AUTH EVENTI REGISTRATI SUBITO.
- * In questo modo eventuali errori nei moduli successivi non possono
- * rendere inattivi ACCEDI o MOSTRA.
- */
-(function bindAuthenticationImmediately(){
-  const form=$('loginForm');
-  const button=$('loginBtn');
+  $('togglePassword')?.addEventListener('click',e=>{
+    e.preventDefault();
+    const p=$('loginPassword');
+    if(!p)return;
+    const show=p.type==='password';
+    p.type=show?'text':'password';
+    $('togglePassword').textContent=show?'NASCONDI':'MOSTRA';
+  });
 
-  if(form && !form.dataset.authBound){
-    form.dataset.authBound='1';
-
-    form.addEventListener('submit',async function(e){
-      e.preventDefault();
-      e.stopPropagation();
-
-      const email=String($('loginEmail')?.value||'').trim();
-      const password=String($('loginPassword')?.value||'');
-
-      setLoginError('');
-      if(button){
-        button.disabled=true;
-        button.textContent='ACCESSO...';
-      }
-
-      try{
-        const session=await loginWithPassword(email,password);
-        hideLogin(session);
-        if($('loginPassword'))$('loginPassword').value='';
-
-        try{
-          await loadAll();
-        }catch(loadErr){
-          console.error('DATABASE LOAD ERROR',loadErr);
-          alert('LOGIN EFFETTUATO. ERRORE CARICAMENTO DATABASE: '+(loadErr?.message||loadErr));
-        }
-      }catch(err){
-        console.error('LOGIN ERROR',err);
-        showLogin(err?.message||'IMPOSSIBILE EFFETTUARE L’ACCESSO.');
-      }finally{
-        if(button){
-          button.disabled=false;
-          button.textContent='ACCEDI';
-        }
-      }
-    });
-  }
-
-  // Listener JS oltre al fallback inline.
-  const toggle=$('togglePassword');
-  if(toggle && !toggle.dataset.toggleBound){
-    toggle.dataset.toggleBound='1';
-    toggle.addEventListener('click',function(e){
-      e.preventDefault();
-      // Se l'onclick inline ha già effettuato il toggle non facciamo un secondo toggle.
-      // L'attributo inline è il fallback principale e funziona anche se il resto dell'app si interrompe.
-    });
-  }
+  $('logoutBtn')?.addEventListener('click',logout);
 })();
-
 
 // Nazioni disponibili: bandiera emoji + nome. Nessun file esterno necessario.
 const COUNTRIES=[
@@ -293,110 +230,7 @@ function renderStats(){
 function showView(n){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+n)?.classList.add('active');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===n));if(n==='players')renderPlayersPage();if(n==='teams')renderTeamsPage();if(n==='stats')renderStats();$('sidebar').classList.remove('mobile-open');scrollTo({top:0,behavior:'smooth'})}document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showView(b.dataset.go));['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).addEventListener(id==='q'?'input':'change',renderDashboard));$('searchBtn').onclick=renderDashboard;$('filterBtn').onclick=renderDashboard;$('resetBtn').onclick=()=>{['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).value='');renderDashboard()};$('playersSearch').oninput=renderPlayersPage;$('playerSort').onchange=renderPlayersPage;
 
 
-function openImportPicker(){
-  resetImport();
-  openModal('importModal');
-
-  const input=$('cardFile');
-  if(!input)return;
-
-  input.value='';
-
-  // Browser file pickers must be opened directly from a user click.
-  // Calling click synchronously is more reliable than setTimeout.
-  try{
-    input.click();
-  }catch(err){
-    console.error('FILE PICKER ERROR',err);
-  }
-}
-
-function bindImportControls(){
-  const clickableIds=[
-    'importCardBtn',
-    'dashboardImportBtn',
-    'playersImportBtn',
-    'settingsImportBtn'
-  ];
-
-  clickableIds.forEach(id=>{
-    const el=$(id);
-    if(!el)return;
-
-    el.type='button';
-    el.onclick=e=>{
-      e.preventDefault();
-      e.stopPropagation();
-      openImportPicker();
-    };
-
-    el.onkeydown=e=>{
-      if(e.key==='Enter'||e.key===' '){
-        e.preventDefault();
-        openImportPicker();
-      }
-    };
-  });
-
-  const dropzone=$('dropzone');
-  if(dropzone){
-    dropzone.style.cursor='pointer';
-    dropzone.onclick=e=>{
-      // Prevent LABEL -> hidden input double event / recursion.
-      if(e.target?.id==='cardFile')return;
-      e.preventDefault();
-      e.stopPropagation();
-      const input=$('cardFile');
-      if(input){
-        input.value='';
-        input.click();
-      }
-    };
-  }
-}
-
-function bindDashboardDrop(){
-  const dash=$('dashboardImportBtn');
-  if(!dash)return;
-
-  dash.addEventListener('dragover',e=>{
-    e.preventDefault();
-    e.stopPropagation();
-    dash.classList.add('drag');
-  });
-
-  dash.addEventListener('dragleave',e=>{
-    e.preventDefault();
-    dash.classList.remove('drag');
-  });
-
-  dash.addEventListener('drop',e=>{
-    e.preventDefault();
-    e.stopPropagation();
-    dash.classList.remove('drag');
-
-    const files=Array.from(e.dataTransfer?.files||[]);
-    if(!files.length)return;
-
-    resetImport();
-    openModal('importModal');
-    selectFiles(files);
-  });
-}
-
-const cardFileInput=$('cardFile');
-if(cardFileInput){
-  cardFileInput.addEventListener('change',e=>{
-    const files=Array.from(e.target.files||[]);
-    if(!files.length)return;
-
-    // If the picker was launched from Dashboard/sidebar, modal is already open.
-    // selectFiles keeps both single and multi-card flows intact.
-    selectFiles(files);
-  });
-}
-
-function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));$('manualTeamBtn').onclick=()=>openNewTeamModal();
+function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}$('manualTeamBtn').onclick=()=>openNewTeamModal();
 $('teamForm').onsubmit=async e=>{e.preventDefault();if(!db)return alert('SUPABASE NON CONFIGURATO.');try{await ensureWriteSession();const id=$('teamEditId').value;const payload={name:upper($('teamName').value),country:upper($('teamCountry').value),competition:upper($('teamCompetition').value)};if(!payload.name)throw new Error('IL NOME DELLA SQUADRA È OBBLIGATORIO.');const duplicate=teams.find(t=>norm(t.name)===norm(payload.name)&&String(t.id)!==String(id||''));if(duplicate)throw new Error('ESISTE GIÀ UNA SQUADRA CON QUESTO NOME.');if(id){const{error}=await db.from('teams').update(payload).eq('id',id);if(error)throw error}else{const{error}=await db.from('teams').insert(payload);if(error)throw error}$('teamForm').reset();$('teamEditId').value='';closeModal('teamModal');await loadAll();showView('teams')}catch(err){console.error(err);alert(err?.message||'ERRORE DURANTE IL SALVATAGGIO DELLA SQUADRA.')}};
 function normalizeRole(v){const n=norm(v);if(n.includes('dif')||n.includes('terz')||n.includes('bracc'))return'DIFENSORE';if(n.includes('centr')||n.includes('mezz')||n.includes('med')||n.includes('trequart'))return'CENTROCAMPISTA';return'ATTACCANTE'}
 function openNewTeamModal(){$('teamForm').reset();$('teamEditId').value='';$('teamModalTitle').textContent='NUOVA SQUADRA';openModal('teamModal')}
@@ -505,190 +339,376 @@ function detectFlagNationality(img){
  let R=0,W=0,B=0,G=0,Y=0,K=0,T=0;for(let yy=25;yy<155;yy+=4)for(let xx=25;xx<155;xx+=4){const [a,b,z]=pix(xx,yy);T++;if(a>145&&a>b*1.25&&a>z*1.25)R++;else if(a>195&&b>195&&z>195)W++;else if(z>110&&z>a*1.15)B++;else if(b>100&&b>a*1.08&&b>z*1.05)G++;else if(a>150&&b>120&&z<95)Y++;else if(a<65&&b<65&&z<65)K++}
  if(G/T>.12&&W/T>.08&&R/T>.08)return'ITALIA';if(B/T>.10&&W/T>.10&&R/T>.08)return'FRANCIA';if(K/T>.07&&R/T>.10&&Y/T>.07)return'GERMANIA';if(R/T>.18&&Y/T>.06)return'SPAGNA';return'';
 }
+
+function resetImport(){
+  selectedFile=null;
+  selectedFiles=[];
+  batchResults=[];
+  currentBatchIndex=0;
+  batchMode=false;
+
+  if($('cardFile'))$('cardFile').value='';
+  if($('cardPreview')){
+    $('cardPreview').src='';
+    $('cardPreview').classList.add('hidden');
+  }
+  $('batchQueue')?.classList.add('hidden');
+  if($('batchList'))$('batchList').innerHTML='';
+  $('cardTabsWrap')?.classList.add('hidden');
+  if($('cardTabs'))$('cardTabs').innerHTML='';
+  $('ocrProgress')?.classList.add('hidden');
+  if($('progressFill'))$('progressFill').style.width='0%';
+  if($('progressText'))$('progressText').textContent='PREPARAZIONE...';
+  $('importReview')?.classList.add('hidden');
+  $('uploadStage')?.classList.remove('hidden');
+
+  if($('processCardBtn')){
+    $('processCardBtn').disabled=true;
+    $('processCardBtn').textContent='ELABORA CARD';
+  }
+}
+
+function setSelectedFiles(files){
+  const good=(files||[]).filter(f=>f&&String(f.type||'').startsWith('image/'));
+  if(!good.length)return false;
+
+  selectedFiles=good;
+  selectedFile=good[0];
+  currentBatchIndex=0;
+  batchMode=good.length>1;
+  batchResults=new Array(good.length).fill(null);
+
+  if($('cardPreview')){
+    $('cardPreview').src=URL.createObjectURL(selectedFile);
+    $('cardPreview').classList.remove('hidden');
+  }
+
+  if($('processCardBtn')){
+    $('processCardBtn').disabled=false;
+    $('processCardBtn').textContent=batchMode?`ELABORA ${good.length} CARD`:'ELABORA CARD';
+  }
+
+  renderBatchQueue();
+  return true;
+}
+
+function renderBatchQueue(){
+  if(!$('batchQueue')||!$('batchList'))return;
+  $('batchQueue').classList.toggle('hidden',!batchMode);
+  if(!batchMode)return;
+
+  $('batchCounter').textContent=`${selectedFiles.length} CARD`;
+  $('batchList').innerHTML=selectedFiles.map((f,i)=>{
+    const status=batchResults[i]?.status||'ready';
+    const text=status==='done'?'LETTA':status==='error'?'ERRORE':status==='archived'?'ARCHIVIATA':status==='processing'?'LETTURA...':'PRONTA';
+    return `<button type="button" class="batch-item ${i===currentBatchIndex?'active':''}" data-preview-card="${i}">
+      <div class="batch-name">${esc(f.name)}</div>
+      <div class="batch-status ${status}">${text}</div>
+    </button>`;
+  }).join('');
+
+  document.querySelectorAll('[data-preview-card]').forEach(btn=>{
+    btn.onclick=()=>{
+      const i=Number(btn.dataset.previewCard);
+      currentBatchIndex=i;
+      selectedFile=selectedFiles[i];
+      $('cardPreview').src=URL.createObjectURL(selectedFile);
+      renderBatchQueue();
+    };
+  });
+}
+
+function captureReview(){
+  return {
+    first:upper($('iFirstName').value),
+    last:upper($('iLastName').value),
+    team:upper($('iTeam').value),
+    number:$('iNumber').value,
+    role:upper($('iRole').value),
+    position:upper($('iPosition').value),
+    height:$('iHeight').value,
+    foot:upper($('iFoot').value),
+    year:$('iBirthYear').value,
+    nationality:resolveNationality($('iNationality').value),
+    strengths:$('iStrengths').value.split(',').map(upper).filter(Boolean),
+    weaknesses:$('iWeaknesses').value.split(',').map(upper).filter(Boolean)
+  };
+}
+
+function saveCurrentBatchReview(){
+  if(batchMode&&batchResults[currentBatchIndex]?.parsed){
+    batchResults[currentBatchIndex].parsed=captureReview();
+  }
+}
+
+function renderCardTabs(){
+  if(!$('cardTabsWrap')||!$('cardTabs'))return;
+  $('cardTabsWrap').classList.toggle('hidden',!batchMode);
+  if(!batchMode)return;
+
+  $('cardTabs').innerHTML=batchResults.map((item,i)=>{
+    const p=item?.parsed||{};
+    const label=((p.last||'')+' '+(p.first||'')).trim()||`CARD ${i+1}`;
+    const status=item?.status||'ready';
+    const symbol=status==='archived'?'✓':status==='error'?'!':'';
+
+    return `<button type="button" class="card-tab ${i===currentBatchIndex?'active':''} ${status==='archived'?'archived':''} ${status==='error'?'error':''}" data-card-tab="${i}">
+      <span class="card-tab-number">${i+1}</span>
+      <span class="card-tab-name">${esc(label)}</span>
+      <span class="card-tab-state">${symbol}</span>
+    </button>`;
+  }).join('');
+
+  document.querySelectorAll('[data-card-tab]').forEach(tab=>{
+    tab.onclick=()=>{
+      saveCurrentBatchReview();
+      const i=Number(tab.dataset.cardTab);
+      if(batchResults[i]?.parsed){
+        currentBatchIndex=i;
+        fillImport(batchResults[i].parsed);
+        renderCardTabs();
+      }
+    };
+  });
+}
+
+async function readSingleCardFile(file,index=0,total=1){
+  let worker=null;
+  try{
+    const img=await loadImage(file);
+
+    worker=await Tesseract.createWorker('eng',1,{
+      logger:m=>{
+        if(m.status==='recognizing text'){
+          const progress=m.progress||0;
+          $('progressText').textContent=total>1
+            ?`CARD ${index+1}/${total} · LETTURA ${Math.round(progress*100)}%`
+            :`LETTURA ${Math.round(progress*100)}%`;
+          $('progressFill').style.width=total>1
+            ?`${Math.round(((index+progress)/total)*100)}%`
+            :`${Math.round(progress*100)}%`;
+        }
+      }
+    });
+
+    const keys=['role','first','last','team','number','height','foot','year','strengths','weaknesses'];
+    const raw={};
+    for(const key of keys)raw[key]=await readRegion(worker,img,key);
+
+    return {
+      first:cleanFieldText(raw.first),
+      last:cleanFieldText(raw.last),
+      team:cleanFieldText(raw.team),
+      number:cleanDigits(raw.number).slice(0,2),
+      role:normalizeCardRole(raw.role),
+      position:'',
+      height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
+      foot:/SX/i.test(raw.foot)?'SX':'DX',
+      year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
+      nationality:resolveNationality(detectFlagNationality(img)),
+      strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).filter(Boolean),
+      weaknesses:cleanMulti(raw.weaknesses).split('\n').map(cleanFieldText).filter(Boolean)
+    };
+  }finally{
+    if(worker)try{await worker.terminate()}catch(_){}
+  }
+}
+
+async function processBatchCards(){
+  if(!selectedFiles.length)return;
+  $('ocrProgress').classList.remove('hidden');
+  $('processCardBtn').disabled=true;
+
+  for(let i=0;i<selectedFiles.length;i++){
+    currentBatchIndex=i;
+    batchResults[i]={status:'processing',parsed:null};
+    renderBatchQueue();
+
+    try{
+      const parsed=await readSingleCardFile(selectedFiles[i],i,selectedFiles.length);
+      batchResults[i]={status:'done',parsed};
+    }catch(err){
+      console.error(err);
+      batchResults[i]={status:'error',parsed:null,error:err?.message||String(err)};
+    }
+  }
+
+  const first=batchResults.findIndex(x=>x?.parsed);
+  $('processCardBtn').disabled=false;
+
+  if(first<0){
+    alert('NON È STATO POSSIBILE LEGGERE LE CARD.');
+    return;
+  }
+
+  currentBatchIndex=first;
+  fillImport(batchResults[first].parsed);
+  $('uploadStage').classList.add('hidden');
+  $('importReview').classList.remove('hidden');
+  renderCardTabs();
+  renderBatchQueue();
+}
+
+async function archiveParsedPlayer(parsed){
+  await ensureWriteSession();
+
+  const teamName=upper(parsed.team);
+  if(!teamName)throw new Error('LA SQUADRA È OBBLIGATORIA.');
+
+  let team=teams.find(t=>norm(t.name)===norm(teamName));
+  if(!team){
+    const {data,error}=await db.from('teams').insert({name:teamName,country:'',competition:''}).select().single();
+    if(error)throw error;
+    team=data;
+    teams.push(team);
+  }
+
+  const payload={
+    first_name:upper(parsed.first),
+    last_name:upper(parsed.last),
+    team_id:team.id,
+    number:parsed.number!==''?Number(parsed.number):null,
+    role:upper(parsed.role||'ATTACCANTE'),
+    position:upper(parsed.position),
+    height:parsed.height!==''?Number(parsed.height):null,
+    foot:upper(parsed.foot||'DX'),
+    birth_year:parsed.year!==''?Number(parsed.year):null,
+    nationality:resolveNationality(parsed.nationality),
+    strengths:(parsed.strengths||[]).map(upper),
+    weaknesses:(parsed.weaknesses||[]).map(upper),
+    notes:'IMPORTATO AUTOMATICAMENTE DA CARD',
+    updated_at:new Date().toISOString()
+  };
+
+  if(!payload.first_name||!payload.last_name)throw new Error('NOME E COGNOME SONO OBBLIGATORI.');
+
+  const {data,error}=await db.from('players').insert(payload).select('*, teams(name)').single();
+  if(error)throw error;
+  return data;
+}
+
+function handlePickedFiles(files,autoProcess=true){
+  resetImport();
+  if(!setSelectedFiles(files))return;
+  openModal('importModal');
+  if(autoProcess)setTimeout(()=>processCard(),50);
+}
+
+function bindImportUI(){
+  const input=$('cardFile');
+
+  input?.addEventListener('change',e=>{
+    const files=Array.from(e.target.files||[]);
+    if(files.length)handlePickedFiles(files,true);
+  });
+
+  ['importCardBtn','dashboardImportBtn','playersImportBtn','settingsImportBtn','dropzone'].forEach(id=>{
+    const el=$(id);
+    if(!el)return;
+    el.addEventListener('keydown',e=>{
+      if((e.key==='Enter'||e.key===' ')&&input){
+        e.preventDefault();
+        input.click();
+      }
+    });
+  });
+
+  for(const id of ['dashboardImportBtn','dropzone']){
+    const el=$(id);
+    if(!el)continue;
+    el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('drag')});
+    el.addEventListener('dragleave',()=>el.classList.remove('drag'));
+    el.addEventListener('drop',e=>{
+      e.preventDefault();
+      el.classList.remove('drag');
+      const files=Array.from(e.dataTransfer?.files||[]);
+      if(files.length)handlePickedFiles(files,true);
+    });
+  }
+
+  $('processCardBtn')?.addEventListener('click',processCard);
+  $('restartImportBtn')?.addEventListener('click',()=>{
+    const files=selectedFiles.slice();
+    if(files.length)handlePickedFiles(files,true);
+  });
+  $('clearBatchBtn')?.addEventListener('click',resetImport);
+}
+
 async function processCard(){
- if(batchMode){return processBatchCards();}
- if(!selectedFile)return;
- $('ocrProgress').classList.remove('hidden');
- $('processCardBtn').disabled=true;
- $('progressFill').style.width='3%';
- $('progressText').textContent='AVVIO LETTORE...';
+  if(batchMode)return processBatchCards();
+  if(!selectedFile)return;
 
- let worker=null;
- try{
-   const img=await loadImage(selectedFile);
+  $('ocrProgress').classList.remove('hidden');
+  $('processCardBtn').disabled=true;
+  $('progressFill').style.width='5%';
+  $('progressText').textContent='LETTURA CARD...';
 
-   $('progressText').textContent='CARICAMENTO MOTORE OCR...';
-   $('progressFill').style.width='8%';
-
-   worker=await Tesseract.createWorker('eng',1,{
-     logger:m=>{
-       if(m.status==='loading tesseract core') $('progressText').textContent='CARICAMENTO LETTORE...';
-       else if(m.status==='initializing tesseract') $('progressText').textContent='INIZIALIZZAZIONE...';
-       else if(m.status==='loading language traineddata') $('progressText').textContent='CARICAMENTO MODELLO...';
-       else if(m.status==='initializing api') $('progressText').textContent='PREPARAZIONE LETTURA...';
-     }
-   });
-
-   const keys=['role','first','last','team','number','height','foot','year','strengths','weaknesses'];
-   const raw={};
-
-   for(let i=0;i<keys.length;i++){
-     const key=keys[i];
-     $('progressText').textContent='LETTURA '+key.toUpperCase()+'...';
-     $('progressFill').style.width=(15+Math.round((i/keys.length)*75))+'%';
-     raw[key]=await readRegion(worker,img,key);
-   }
-
-   const parsed={
-     first:cleanFieldText(raw.first),
-     last:cleanFieldText(raw.last),
-     team:cleanFieldText(raw.team),
-     number:cleanDigits(raw.number).slice(0,2),
-     role:normalizeCardRole(raw.role),
-     position:'',
-     height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
-     foot:/SX/i.test(raw.foot)?'SX':'DX',
-     year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
-     nationality:detectFlagNationality(img),
-     strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).filter(Boolean),
-     weaknesses:cleanMulti(raw.weaknesses).split('\n').map(cleanFieldText).filter(Boolean)
-   };
-
-   $('progressFill').style.width='100%';
-   $('progressText').textContent='LETTURA COMPLETATA';
-   fillImport(parsed);
-
-   setTimeout(()=>{
-     $('uploadStage').classList.add('hidden');
-     $('importReview').classList.remove('hidden');
-   },120);
-
- }catch(err){
-   console.error(err);
-   $('progressText').textContent='ERRORE LETTURA';
-   alert('Errore durante la lettura della card: '+(err?.message||err));
- }finally{
-   if(worker){
-     try{await worker.terminate()}catch(_){}
-   }
-   $('processCardBtn').disabled=false;
- }
+  try{
+    const parsed=await readSingleCardFile(selectedFile,0,1);
+    $('progressFill').style.width='100%';
+    $('progressText').textContent='LETTURA COMPLETATA';
+    fillImport(parsed);
+    $('uploadStage').classList.add('hidden');
+    $('importReview').classList.remove('hidden');
+  }catch(err){
+    console.error(err);
+    alert('ERRORE LETTURA CARD: '+(err?.message||err));
+  }finally{
+    $('processCardBtn').disabled=false;
+  }
 }
 function fillImport(p){$('iFirstName').value=upper(p.first);$('iLastName').value=upper(p.last);$('iTeam').value=upper(p.team);$('iNumber').value=p.number||'';$('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'ATTACCANTE';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=p.foot==='SX'?'SX':'DX';$('iBirthYear').value=p.year||'';$('iNationality').value=resolveNationality(p.nationality||'');$('iStrengths').value=(p.strengths||[]).map(upper).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).map(upper).join(', ')}
-async function ensureWriteSession(){
- if(!db)throw new Error('Supabase non configurato.');
- const {data,error}=await db.auth.getSession();
- if(error)throw error;
- if(!data.session)throw new Error('Sessione scaduta. Effettua nuovamente il login.');
- currentSession=data.session;
- return data.session;
-}
+
+
 async function archiveImportedPlayer(){
- if(batchMode){
-   saveCurrentReviewToBatch();
-   const item=batchResults[currentBatchIndex];
-   if(!item?.parsed)return alert('Dati card non disponibili.');
-   const btn=$('archivePlayerBtn');const old=btn.textContent;
-   btn.disabled=true;btn.textContent='ARCHIVIAZIONE...';
-   try{
-     await archiveParsedPlayer(item.parsed);
-     item.status='archived';
-     renderCardTabs();
-     const next=batchResults.findIndex((x,i)=>i>currentBatchIndex&&x?.parsed&&x.status!=='archived');
-     if(next>=0){
-       showBatchReview(next);
-     }else{
-       await loadAll();
-       closeModal('importModal');
-       resetImport();
-       showView('players');
-       alert('CARD ARCHIVIATE.');
-     }
-   }catch(err){
-     console.error(err);alert(err?.message||'Errore durante l’archiviazione.');
-   }finally{
-     btn.disabled=false;btn.textContent=old;
-   }
-   return;
- }
+  const btn=$('archivePlayerBtn');
+  if(btn){btn.disabled=true;btn.textContent='ARCHIVIAZIONE...';}
 
- if(!db){alert('Supabase non configurato.');return;}
- const btn=$('archivePlayerBtn') || $('importReview').querySelector('button:last-child');
- const oldText=btn ? btn.textContent : 'ARCHIVIA GIOCATORE';
- if(btn){btn.disabled=true;btn.textContent='ARCHIVIAZIONE...';}
+  try{
+    if(batchMode){
+      saveCurrentBatchReview();
+      const item=batchResults[currentBatchIndex];
+      if(!item?.parsed)throw new Error('DATI CARD NON DISPONIBILI.');
 
- try{
-   await ensureWriteSession();
+      await archiveParsedPlayer(item.parsed);
+      item.status='archived';
+      renderCardTabs();
+      renderBatchQueue();
 
-   const teamName=upper($('iTeam').value);
-   if(!teamName)throw new Error('Il nome della squadra è obbligatorio.');
+      const next=batchResults.findIndex((x,i)=>i>currentBatchIndex&&x?.parsed&&x.status!=='archived');
+      if(next>=0){
+        currentBatchIndex=next;
+        fillImport(batchResults[next].parsed);
+        renderCardTabs();
+      }else{
+        await loadAll();
+        closeModal('importModal');
+        resetImport();
+        showView('players');
+      }
+      return;
+    }
 
-   let team=teams.find(t=>norm(t.name)===norm(teamName));
-
-   if(!team){
-     const {data,error}=await db
-       .from('teams')
-       .insert({name:teamName,country:'',competition:''})
-       .select()
-       .single();
-
-     if(error)throw new Error('Errore creazione squadra: '+error.message);
-     team=data;
-     teams.push(team);
-   }
-
-   const payload={
-     first_name:upper($('iFirstName').value),
-     last_name:upper($('iLastName').value),
-     team_id:team.id,
-     number:$('iNumber').value ? Number($('iNumber').value) : null,
-     role:upper($('iRole').value),
-     position:upper($('iPosition').value),
-     height:$('iHeight').value ? Number($('iHeight').value) : null,
-     foot:$('iFoot').value,
-     birth_year:$('iBirthYear').value ? Number($('iBirthYear').value) : null,
-     nationality:resolveNationality($('iNationality').value),
-     strengths:$('iStrengths').value.split(',').map(upper).filter(Boolean),
-     weaknesses:$('iWeaknesses').value.split(',').map(upper).filter(Boolean),
-     notes:'Importato automaticamente da card',
-     updated_at:new Date().toISOString()
-   };
-
-   if(!payload.first_name || !payload.last_name)
-     throw new Error('Nome e cognome sono obbligatori.');
-
-   const {data:created,error}=await db
-     .from('players')
-     .insert(payload)
-     .select('*, teams(name)')
-     .single();
-
-   if(error)throw new Error('Errore salvataggio giocatore: '+error.message);
-
-   if(created) players.unshift(created);
-
-   closeModal('importModal');
-   resetImport();
-   await loadAll();
-   showView('players');
-   alert('GIOCATORE ARCHIVIATO CORRETTAMENTE.');
-
- }catch(err){
-   console.error('Archive error:',err);
-   alert(err?.message || 'Errore durante l’archiviazione.');
- }finally{
-   if(btn){btn.disabled=false;btn.textContent=oldText;}
- }
+    await archiveParsedPlayer(captureReview());
+    await loadAll();
+    closeModal('importModal');
+    resetImport();
+    showView('players');
+  }catch(err){
+    console.error(err);
+    alert(err?.message||'ERRORE ARCHIVIAZIONE.');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='ARCHIVIA GIOCATORE';}
+  }
 }
 
 
 
-$('clearBatchBtn')?.addEventListener('click',resetImport);
 
 
 
-$('importReview').addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();
- if(batchMode){saveCurrentReviewToBatch();}await archiveImportedPlayer();});populateCountrySelects();
+
+populateCountrySelects();
 
 
 
@@ -719,6 +739,20 @@ window.addEventListener('unhandledrejection',e=>{
 
 $('logoutBtn')?.addEventListener('click',logout);
 
-bindImportControls();
-bindDashboardDrop();
+
+
+
+$('importReview')?.addEventListener('submit',async e=>{
+  e.preventDefault();
+  await archiveImportedPlayer();
+});
+document.querySelectorAll('[data-close]').forEach(b=>{
+  b.onclick=()=>closeModal(b.dataset.close);
+});
+bindImportUI();
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.getRegistrations().then(regs=>regs.forEach(r=>r.unregister())).catch(()=>{});
+}
+
 initializeAuth().catch(e=>{console.error(e);showLogin(e.message)});
