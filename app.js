@@ -34,17 +34,17 @@ $('processCardBtn').onclick=processCard;
   leggiamo ogni area separatamente, esattamente dove il dato è stampato.
 */
 const CARD_REGIONS={
- role:       {x:.31,y:.018,w:.42,h:.085,psm:'7'},
- first:      {x:.035,y:.340,w:.215,h:.055,psm:'7'},
- last:       {x:.035,y:.395,w:.215,h:.072,psm:'7'},
- team:       {x:.018,y:.455,w:.245,h:.055,psm:'7'},
- number:     {x:.030,y:.525,w:.215,h:.170,psm:'7',digits:true},
- flag:       {x:.060,y:.730,w:.135,h:.185},
- height:     {x:.795,y:.095,w:.185,h:.115,psm:'7',digits:true},
- foot:       {x:.815,y:.380,w:.150,h:.120,psm:'7'},
- year:       {x:.790,y:.790,w:.185,h:.145,psm:'7',digits:true},
- strengths:  {x:.315,y:.650,w:.410,h:.165,psm:'6'},
- weaknesses: {x:.300,y:.845,w:.430,h:.115,psm:'6'}
+ role:       {x:.31,y:.018,w:.42,h:.075,psm:'7'},
+ first:      {x:.045,y:.350,w:.205,h:.042,psm:'7'},
+ last:       {x:.045,y:.392,w:.205,h:.052,psm:'7'},
+ team:       {x:.020,y:.438,w:.235,h:.050,psm:'7'},
+ number:     {x:.035,y:.500,w:.205,h:.175,psm:'7',digits:true},
+ flag:       {x:.070,y:.745,w:.115,h:.150},
+ height:     {x:.800,y:.095,w:.175,h:.100,psm:'7',digits:true},
+ foot:       {x:.825,y:.380,w:.135,h:.100,psm:'7'},
+ year:       {x:.800,y:.800,w:.170,h:.110,psm:'7',digits:true},
+ strengths:  {x:.320,y:.650,w:.405,h:.155,psm:'6'},
+ weaknesses: {x:.305,y:.842,w:.425,h:.105,psm:'6'}
 };
 function loadImage(file){return new Promise((ok,ko)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=ko;im.src=URL.createObjectURL(file)})}
 function cropCanvas(img,r,scale=2.4){
@@ -58,21 +58,42 @@ function cropCanvas(img,r,scale=2.4){
 }
 function cleanLine(t){return String(t||'').replace(/[\r\n]+/g,' ').replace(/[|]/g,'I').replace(/\s+/g,' ').trim().replace(/^[^A-Za-zÀ-ÿ0-9]+|[^A-Za-zÀ-ÿ0-9)('’\-\. ]+$/g,'')}
 function cleanLetters(t){return cleanLine(t).replace(/[^A-Za-zÀ-ÿ0-9'’\-\. ]/g,'').replace(/\s+/g,' ').trim()}
+function cleanFieldText(t){const raw=cleanLetters(t).toUpperCase();const toks=raw.split(/\s+/).filter(Boolean);const filtered=toks.filter((tok,i)=>tok.length>1||toks.length===1);return filtered.join(' ').replace(/\s+/g,' ').trim()}
 function cleanDigits(t){const m=String(t||'').match(/\d+/g);return m?m.join(''):''}
 function cleanMulti(t){return String(t||'').split(/\n+/).map(cleanLetters).filter(x=>x.length>1&&!/^I$/.test(x)).join('\n')}
 function normalizeCardRole(t){const n=norm(t);if(n.includes('difensor'))return'DIFENSORE';if(n.includes('centrocamp'))return'CENTROCAMPISTA';if(n.includes('attacc'))return'ATTACCANTE';return cleanLetters(t).toUpperCase()||'ATTACCANTE'}
 async function readRegion(worker,img,key){
  const r=CARD_REGIONS[key],c=cropCanvas(img,r,key==='number'?3:2.4);
- await worker.setParameters({tessedit_pageseg_mode:r.psm||'7',preserve_interword_spaces:'1',user_defined_dpi:'300'});
+ const params={tessedit_pageseg_mode:r.psm||'7',preserve_interword_spaces:'1',user_defined_dpi:'300'};if(['first','last','team','role','foot'].includes(key))params.tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÀÈÉÌÒÓÙÑÇ -'";else if(r.digits)params.tessedit_char_whitelist='0123456789';else params.tessedit_char_whitelist='';await worker.setParameters(params);
  const {data}=await worker.recognize(c);return data.text||'';
 }
 function detectFlagNationality(img){
- // Riconoscimento visivo conservativo. Se non siamo sicuri lasciamo il campo vuoto.
  const r=CARD_REGIONS.flag,sx=Math.round(img.naturalWidth*r.x),sy=Math.round(img.naturalHeight*r.y),sw=Math.round(img.naturalWidth*r.w),sh=Math.round(img.naturalHeight*r.h);
- const c=document.createElement('canvas');c.width=120;c.height=120;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,sx,sy,sw,sh,0,0,120,120);const d=x.getImageData(0,0,120,120).data;
- let red=0,white=0,total=0;const whiteByX=Array(120).fill(0),whiteByY=Array(120).fill(0),redByX=Array(120).fill(0),redByY=Array(120).fill(0);
- for(let yy=10;yy<110;yy++)for(let xx=10;xx<110;xx++){const i=(yy*120+xx)*4,R=d[i],G=d[i+1],B=d[i+2],A=d[i+3];if(A<100)continue;total++;const isW=R>205&&G>205&&B>205;const isR=R>125&&R>G*1.35&&R>B*1.35;if(isW){white++;whiteByX[xx]++;whiteByY[yy]++}if(isR){red++;redByX[xx]++;redByY[yy]++}}
- if(total){const redRatio=red/total,whiteRatio=white/total;const vx=whiteByX.indexOf(Math.max(...whiteByX)),hy=whiteByY.indexOf(Math.max(...whiteByY));if(redRatio>.28&&whiteRatio>.08&&vx>35&&vx<65&&hy>45&&hy<72)return'Danimarca'}
+ const c=document.createElement('canvas');c.width=160;c.height=160;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,sx,sy,sw,sh,0,0,160,160);const d=x.getImageData(0,0,160,160).data;
+ const cls=(R,G,B)=>{if(R>190&&G>190&&B>190)return'W';if(R>120&&R>G*1.25&&R>B*1.25)return'R';if(B>95&&B>R*1.12&&B>G*1.05)return'B';if(G>85&&G>R*1.1&&G>B*1.02)return'G';if(R>140&&G>110&&B<90)return'Y';if(R<85&&G<85&&B<85)return'K';return'N'};
+ const grid=Array.from({length:7},()=>Array(7).fill('N'));
+ for(let gy=0;gy<7;gy++)for(let gx=0;gx<7;gx++){let cnt={R:0,W:0,B:0,G:0,Y:0,K:0,N:0};for(let yy=Math.floor((gy+.18)*160/7);yy<Math.floor((gy+.82)*160/7);yy+=2)for(let xx=Math.floor((gx+.18)*160/7);xx<Math.floor((gx+.82)*160/7);xx+=2){const i=(yy*160+xx)*4;cnt[cls(d[i],d[i+1],d[i+2])]++}grid[gy][gx]=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0][0]}
+ const count=k=>grid.flat().filter(v=>v===k).length, row=(y,k)=>grid[y].filter(v=>v===k).length, col=(z,k)=>grid.map(r=>r[z]).filter(v=>v===k).length;
+ const R=count('R'),W=count('W'),B=count('B'),G=count('G'),Y=count('Y'),K=count('K');
+ // Croce nordica bianca su rosso: Danimarca. La barra verticale è spostata leggermente a sinistra.
+ if(R>=10&&W>=4&&Math.max(col(2,'W'),col(3,'W'))>=4&&Math.max(row(3,'W'),row(4,'W'))>=4)return'DANIMARCA';
+ // Croce rossa su bianco: Inghilterra.
+ if(W>=12&&R>=4&&Math.max(col(3,'R'),col(4,'R'))>=4&&Math.max(row(3,'R'),row(4,'R'))>=4)return'INGHILTERRA';
+ // Tricolori verticali.
+ const left=grid.flatMap((r,i)=>r.slice(0,2)),mid=grid.flatMap(r=>r.slice(2,5)),right=grid.flatMap(r=>r.slice(5,7));
+ const n=(a,k)=>a.filter(v=>v===k).length;
+ if(n(left,'G')>=4&&n(mid,'W')>=5&&n(right,'R')>=4)return'ITALIA';
+ if(n(left,'B')>=4&&n(mid,'W')>=5&&n(right,'R')>=4)return'FRANCIA';
+ if(n(left,'K')>=3&&n(mid,'Y')>=4&&n(right,'R')>=4)return'BELGIO';
+ // Tricolori orizzontali.
+ const top=grid.slice(0,2).flat(),middle=grid.slice(2,5).flat(),bottom=grid.slice(5,7).flat();
+ if(n(top,'R')>=5&&n(middle,'W')>=6&&n(bottom,'B')>=5)return'PAESI BASSI';
+ if(n(top,'K')>=4&&n(middle,'R')>=5&&n(bottom,'Y')>=5)return'GERMANIA';
+ if(n(top,'R')>=5&&n(middle,'Y')>=7&&n(bottom,'R')>=5)return'SPAGNA';
+ if(n(top,'B')>=5&&n(middle,'W')>=6&&n(bottom,'R')>=5)return'RUSSIA';
+ if(B>=7&&W>=7&&R>=3)return'CROAZIA';
+ if(G>=9&&Y>=3&&B>=2)return'BRASILE';
+ if(B>=8&&W>=7&&R<=3)return'ARGENTINA';
  return'';
 }
 async function processCard(){
@@ -89,9 +110,9 @@ async function processCard(){
    const height=cleanDigits(out.height).slice(0,3),yearRaw=cleanDigits(out.year),number=cleanDigits(out.number).slice(0,2);
    const yearMatch=yearRaw.match(/(?:19|20)\d{2}/);const footRaw=cleanLetters(out.foot).toUpperCase();
    const parsed={
-     first:cleanLetters(out.first).toUpperCase(),
-     last:cleanLetters(out.last).toUpperCase(),
-     team:cleanLetters(out.team).toUpperCase(),
+     first:cleanFieldText(out.first),
+     last:cleanFieldText(out.last),
+     team:cleanFieldText(out.team),
      number:number,
      role:normalizeCardRole(out.role),
      position:'',
@@ -111,4 +132,26 @@ async function processCard(){
  finally{if(worker)await worker.terminate();$('processCardBtn').disabled=false}
 }
 function fillImport(p){$('iFirstName').value=p.first||'';$('iLastName').value=p.last||'';$('iTeam').value=p.team||'';$('iNumber').value=p.number||'';$('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'ATTACCANTE';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=p.foot==='SX'?'SX':'DX';$('iBirthYear').value=p.year||'';$('iNationality').value=p.nationality||'';$('iStrengths').value=(p.strengths||[]).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).join(', ')}
-$('importReview').onsubmit=async e=>{e.preventDefault();if(!db)return alert('Supabase non configurato.');const teamName=$('iTeam').value.trim();let team=teams.find(t=>norm(t.name)===norm(teamName));if(!team){const{data,error}=await db.from('teams').insert({name:teamName,country:'',competition:''}).select().single();if(error)return alert('Errore squadra: '+error.message);team=data}const payload={first_name:$('iFirstName').value.trim(),last_name:$('iLastName').value.trim(),team_id:team.id,number:$('iNumber').value?+$('iNumber').value:null,role:$('iRole').value,position:$('iPosition').value.trim(),height:$('iHeight').value?+$('iHeight').value:null,foot:$('iFoot').value,birth_year:$('iBirthYear').value?+$('iBirthYear').value:null,nationality:$('iNationality').value.trim(),strengths:$('iStrengths').value.split(',').map(x=>x.trim()).filter(Boolean),weaknesses:$('iWeaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),notes:'Importato automaticamente da card',updated_at:new Date().toISOString()};const{error}=await db.from('players').insert(payload);if(error)return alert('Errore archiviazione: '+error.message);closeModal('importModal');resetImport();await loadAll();showView('players')};loadAll().catch(e=>{console.error(e);alert(e.message)});
+async function ensureWriteSession(){
+ const {data:{session},error:getErr}=await db.auth.getSession();if(getErr)throw getErr;if(session)return session;
+ const {data,error}=await db.auth.signInAnonymously();if(error)throw new Error('ARCHIVIAZIONE BLOCCATA DA SUPABASE: abilita Authentication → Providers → Anonymous Sign-Ins, poi riprova. Dettaglio: '+error.message);return data.session;
+}
+async function archiveImportedPlayer(){
+ if(!db)return alert('Supabase non configurato.');
+ const btn=$('importReview').querySelector('button[type="submit"]');const old=btn.textContent;btn.disabled=true;btn.textContent='ARCHIVIAZIONE...';
+ try{
+   await ensureWriteSession();
+   const teamName=$('iTeam').value.trim();if(!teamName)throw new Error('Il nome della squadra è obbligatorio.');
+   let team=teams.find(t=>norm(t.name)===norm(teamName));
+   if(!team){
+     const {data,error}=await db.from('teams').insert({name:teamName,country:'',competition:''}).select().single();
+     if(error)throw error;team=data;
+   }
+   const payload={first_name:$('iFirstName').value.trim(),last_name:$('iLastName').value.trim(),team_id:team.id,number:$('iNumber').value?+$('iNumber').value:null,role:$('iRole').value,position:$('iPosition').value.trim(),height:$('iHeight').value?+$('iHeight').value:null,foot:$('iFoot').value,birth_year:$('iBirthYear').value?+$('iBirthYear').value:null,nationality:$('iNationality').value.trim(),strengths:$('iStrengths').value.split(',').map(x=>x.trim()).filter(Boolean),weaknesses:$('iWeaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),notes:'Importato automaticamente da card',updated_at:new Date().toISOString()};
+   if(!payload.first_name||!payload.last_name)throw new Error('Nome e cognome sono obbligatori.');
+   const {error}=await db.from('players').insert(payload);if(error)throw error;
+   closeModal('importModal');resetImport();await loadAll();showView('players');alert('GIOCATORE ARCHIVIATO CORRETTAMENTE.');
+ }catch(err){console.error(err);alert(err.message||'Errore durante l’archiviazione.');}
+ finally{btn.disabled=false;btn.textContent=old;}
+}
+$('importReview').onsubmit=async e=>{e.preventDefault();e.stopPropagation();await archiveImportedPlayer()};loadAll().catch(e=>{console.error(e);alert(e.message)});
