@@ -1,56 +1,19 @@
-# Player Analysis Database
+# Player Analysis Database V2
 
-Architettura:
-- Frontend statico su GitHub Pages
-- Database PostgreSQL su Supabase
-- Supabase JS nel browser
-- RLS attivo
+Versione GitHub Pages + Supabase.
 
-## 1. Crea il progetto Supabase
-Vai su Supabase, crea un progetto e apri SQL Editor.
-Copia/incolla tutto il contenuto di `supabase_setup.sql` ed eseguilo.
+Modifiche V2:
+- Footer viola dimezzato; credits piccoli in basso a destra.
+- Rimossa Ricerca Globale dal menu laterale.
+- Player Database allineato a sinistra con logo a destra.
+- Piede: solo DX / SX.
+- Ruolo: DIFENSORE / CENTROCAMPISTA / ATTACCANTE.
+- Tutti i pulsanti di navigazione attivi.
+- Pagina GIOCATORI con ordinamento per alfabetico, età, piede, ruolo, nazionalità.
+- Pagina SQUADRE e STATISTICHE attive.
+- Importazione card con OCR nel browser tramite Tesseract.js.
+- L'immagine originale non viene salvata: serve solo per estrarre i dati e viene eliminata dalla memoria temporanea.
+- Se la squadra letta non esiste, può essere creata automaticamente al salvataggio.
+- I dati riconosciuti vengono mostrati per controllo prima dell'archiviazione.
 
-## 2. Configura la web app
-Nel progetto Supabase apri "Connect" oppure Settings > API Keys.
-Copia:
-- Project URL
-- Publishable key
-
-Apri `config.js` e sostituisci i due placeholder.
-
-NON usare una Secret key / service_role nel browser.
-
-## 3. Autenticazione
-Le policy del database sono già impostate per utenti `authenticated`.
-Prima della pubblicazione operativa va aggiunta la schermata login Supabase Auth.
-Questo evita di rendere pubblico il database giocatori.
-
-## 4. GitHub Pages
-Crea un repository GitHub.
-Carica tutti i file di questa cartella nella root.
-In GitHub:
-Settings > Pages > Deploy from a branch > main / root
-
-GitHub genererà l'URL pubblico della web app.
-
-## Ricerca
-La ricerca globale cerca anche dentro:
-- punti di forza
-- punti deboli
-- nome/cognome
-- squadra
-- ruolo
-- posizione
-- nazionalità
-- note
-
-## Età
-Nel database viene salvato soltanto l'anno di nascita.
-L'app considera convenzionalmente il compleanno al 1° marzo e calcola automaticamente l'età.
-
-## Prossimi moduli consigliati
-1. Login Supabase Auth
-2. Foto giocatore compresse in Supabase Storage
-3. Posizione cliccabile sul campo
-4. Storico delle analisi per partita/data
-5. Generatore della card grafica e download PNG/PDF
+Per aggiornare GitHub Pages, sostituisci i file del repository con quelli di questa cartella e fai Commit.

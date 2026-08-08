@@ -1,134 +1,40 @@
 <!doctype html>
-<html lang="it">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#351463">
-  <title>Player Analysis Database</title>
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-</head>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#351463"><title>Player Analysis Database</title><link rel="stylesheet" href="styles.css"><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script></head>
 <body>
-<div id="setupBanner" class="setup-banner hidden">
-  SUPABASE NON È ANCORA CONFIGURATO. APRI <b>config.js</b> E INSERISCI PROJECT URL + PUBLISHABLE KEY.
-</div>
-
+<div id="setupBanner" class="setup-banner hidden">SUPABASE NON È CONFIGURATO.</div>
 <div class="shell">
-  <aside class="sidebar">
-    <div class="brand">
-      <img src="assets/fiorentina-logo.webp" alt="Fiorentina">
-      <div class="brand-title">PLAYER<br>DATABASE</div>
-    </div>
-    <div class="nav">
-      <button class="active"><span class="icon">⌂</span><span>DASHBOARD</span></button>
-      <button><span class="icon">⌕</span><span>RICERCA GLOBALE</span></button>
-      <button><span class="icon">⬡</span><span>SQUADRE</span></button>
-      <button><span class="icon">●</span><span>GIOCATORI</span></button>
-      <button id="newPlayerBtn"><span class="icon">＋</span><span>NUOVO GIOCATORE</span></button>
-      <button id="newTeamBtn"><span class="icon">✚</span><span>NUOVA SQUADRA</span></button>
-    </div>
-  </aside>
-
-  <main class="main">
-    <header class="topbar">
-      <button class="menu">☰</button>
-      <div class="title">PLAYER ANALYSIS DATABASE</div>
-      <div class="profile"><div class="avatar">AT</div><span>Andrea Tordi</span></div>
-    </header>
-
-    <div class="content">
-      <section class="kpis">
-        <div class="kpi"><div class="kpi-icon">👥</div><div><div class="kpi-label">GIOCATORI TOTALI</div><div class="kpi-value" id="totalPlayers">0</div></div></div>
-        <div class="kpi"><div class="kpi-icon">⬡</div><div><div class="kpi-label">SQUADRE</div><div class="kpi-value" id="totalTeams">0</div></div></div>
-        <div class="kpi"><div class="kpi-icon">◉</div><div><div class="kpi-label">NAZIONALITÀ</div><div class="kpi-value" id="totalNations">0</div></div></div>
-        <div class="kpi"><div class="kpi-icon">▥</div><div><div class="kpi-label">ANALISI TOTALI</div><div class="kpi-value" id="totalAnalysis">0</div></div></div>
-      </section>
-
-      <section class="dashboard">
-        <div class="card pad">
-          <h2 class="section-title">RICERCA GLOBALE</h2>
-          <div class="searchline">
-            <input id="q" placeholder="Cerca nome, squadra, ruolo, punto di forza, punto debole, nazione...">
-            <button id="searchBtn">⌕</button>
-          </div>
-          <div class="divider"></div>
-          <div class="filter-title">FILTRI RAPIDI</div>
-          <div class="filters">
-            <div class="field"><label>SQUADRA</label><select id="fTeam"><option value="">Tutte</option></select></div>
-            <div class="field"><label>RUOLO</label><select id="fRole"><option value="">Tutti</option></select></div>
-            <div class="field"><label>PIEDE</label><select id="fFoot"><option value="">Tutti</option><option>DX</option><option>SX</option><option>AMB</option></select></div>
-            <div class="field"><label>NAZIONALITÀ</label><select id="fNation"><option value="">Tutte</option></select></div>
-            <div class="field"><label>ANNO DI NASCITA</label><select id="fYear"><option value="">Tutti</option></select></div>
-            <div class="field search-action"><button class="primary" id="filterBtn">CERCA</button><button class="reset" id="resetBtn">RESET FILTRI</button></div>
-          </div>
-        </div>
-
-        <div class="card pad">
-          <h2 class="section-title">SQUADRE PIÙ ANALIZZATE</h2>
-          <div id="teamList"></div>
-        </div>
-
-        <div class="card players-card">
-          <h2 class="section-title players-title">GIOCATORI</h2>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>GIOCATORE</th><th>SQUADRA</th><th>RUOLO</th><th>ANNO</th><th>PIEDE</th><th>ETÀ</th><th>NAZIONALITÀ</th><th>AZIONI</th></tr></thead>
-              <tbody id="tbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-    </div>
-
-    <footer class="footer">
-      <div>REALIZZATO DA ANDREA TORDI</div>
-      <img src="assets/fiorentina-logo.webp" alt="Fiorentina">
-      <div>© 2026 - TUTTI I DIRITTI RISERVATI</div>
-    </footer>
-  </main>
+<aside class="sidebar" id="sidebar">
+  <div class="brand"><div class="brand-title">PLAYER<br>DATABASE</div><img src="assets/fiorentina-logo.webp" alt="Fiorentina"></div>
+  <nav class="nav">
+    <button class="active" data-view="dashboard"><span class="icon">⌂</span><span>DASHBOARD</span></button>
+    <button data-view="players"><span class="icon">●</span><span>GIOCATORI</span></button>
+    <button data-view="teams"><span class="icon">⬡</span><span>SQUADRE</span></button>
+    <button id="importCardBtn"><span class="icon">＋</span><span>IMPORTA CARD</span></button>
+    <button data-view="stats"><span class="icon">▥</span><span>STATISTICHE</span></button>
+    <button data-view="settings"><span class="icon">⚙</span><span>IMPOSTAZIONI</span></button>
+  </nav>
+</aside>
+<main class="main">
+<header class="topbar"><button class="menu" id="menuBtn">☰</button><div class="title">PLAYER ANALYSIS DATABASE</div><div class="profile"><div class="avatar">AT</div><span>Andrea Tordi</span></div></header>
+<div class="content">
+<section id="view-dashboard" class="view active">
+  <section class="kpis"><div class="kpi"><div class="kpi-icon">👥</div><div><div class="kpi-label">GIOCATORI TOTALI</div><div class="kpi-value" id="totalPlayers">0</div></div></div><div class="kpi"><div class="kpi-icon">⬡</div><div><div class="kpi-label">SQUADRE</div><div class="kpi-value" id="totalTeams">0</div></div></div><div class="kpi"><div class="kpi-icon">◉</div><div><div class="kpi-label">NAZIONALITÀ</div><div class="kpi-value" id="totalNations">0</div></div></div><div class="kpi"><div class="kpi-icon">▥</div><div><div class="kpi-label">ANALISI TOTALI</div><div class="kpi-value" id="totalAnalysis">0</div></div></div></section>
+  <section class="dashboard">
+    <div class="card pad"><h2 class="section-title">RICERCA GLOBALE</h2><div class="searchline"><input id="q" placeholder="Cerca nome, squadra, ruolo, punto di forza, punto debole, nazione..."><button id="searchBtn">⌕</button></div><div class="divider"></div><div class="filter-title">FILTRI RAPIDI</div><div class="filters"><div class="field"><label>SQUADRA</label><select id="fTeam"><option value="">Tutte</option></select></div><div class="field"><label>RUOLO</label><select id="fRole"><option value="">Tutti</option><option>DIFENSORE</option><option>CENTROCAMPISTA</option><option>ATTACCANTE</option></select></div><div class="field"><label>PIEDE</label><select id="fFoot"><option value="">Tutti</option><option>DX</option><option>SX</option></select></div><div class="field"><label>NAZIONALITÀ</label><select id="fNation"><option value="">Tutte</option></select></div><div class="field"><label>ANNO DI NASCITA</label><select id="fYear"><option value="">Tutti</option></select></div><div class="field search-action"><button class="primary" id="filterBtn">CERCA</button><button class="reset" id="resetBtn">RESET FILTRI</button></div></div></div>
+    <div class="card pad"><div class="section-head"><h2 class="section-title">SQUADRE PIÙ ANALIZZATE</h2><button class="linkbtn" data-go="teams">VEDI TUTTE ›</button></div><div id="teamList"></div></div>
+    <div class="card players-card"><div class="players-title section-head"><h2 class="section-title">GIOCATORI</h2><button class="linkbtn" data-go="players">VEDI TUTTI ›</button></div><div class="table-wrap"><table><thead><tr><th>GIOCATORE</th><th>SQUADRA</th><th>RUOLO</th><th>ANNO</th><th>PIEDE</th><th>ETÀ</th><th>NAZIONALITÀ</th><th>AZIONI</th></tr></thead><tbody id="tbody"></tbody></table></div></div>
+  </section>
+</section>
+<section id="view-players" class="view"><div class="page-head"><div><h1>GIOCATORI</h1><p>Archivio completo dei giocatori.</p></div><button class="primary auto" id="playersImportBtn">＋ IMPORTA CARD</button></div><div class="card pad controls-row"><div class="field grow"><label>CERCA GIOCATORE</label><input id="playersSearch" placeholder="Nome, squadra, punto di forza..."></div><div class="field sortfield"><label>ORDINA PER</label><select id="playerSort"><option value="alphabetical">ALFABETICO</option><option value="age">ETÀ</option><option value="foot">PIEDE</option><option value="role">RUOLO</option><option value="nationality">NAZIONALITÀ</option></select></div></div><div class="card player-grid" id="playerGrid"></div></section>
+<section id="view-teams" class="view"><div class="page-head"><div><h1>SQUADRE</h1><p>Tutte le squadre presenti nell'archivio.</p></div><button class="secondary" id="manualTeamBtn">＋ AGGIUNGI SQUADRA</button></div><div class="team-grid" id="teamsGrid"></div></section>
+<section id="view-stats" class="view"><div class="page-head"><div><h1>STATISTICHE</h1><p>Panoramica dell'archivio.</p></div></div><div class="stats-grid" id="statsGrid"></div></section>
+<section id="view-settings" class="view"><div class="page-head"><div><h1>IMPOSTAZIONI</h1><p>Configurazione della web app.</p></div></div><div class="card pad settings-card"><h2 class="section-title">IMPORTAZIONE AUTOMATICA</h2><p>La card viene elaborata direttamente nel browser. L'immagine originale non viene archiviata: viene letta, trasformata in dati e rimossa dalla memoria temporanea.</p><p class="muted">Prima dell'archiviazione puoi controllare i dati riconosciuti.</p><button class="primary auto" id="settingsImportBtn">IMPORTA UNA CARD</button></div></section>
 </div>
+<footer class="footer"><div class="footer-copy">REALIZZATO DA ANDREA TORDI · © 2026 - TUTTI I DIRITTI RISERVATI</div></footer>
+</main></div>
 
-<div class="modal" id="playerModal">
-  <div class="sheet">
-    <div class="sheet-head"><h2 id="modalTitle">NUOVO GIOCATORE</h2><button class="close" data-close="playerModal">×</button></div>
-    <form id="playerForm">
-      <input type="hidden" id="playerId">
-      <div class="formgrid">
-        <div class="field"><label>NOME</label><input id="firstName" required></div>
-        <div class="field"><label>COGNOME</label><input id="lastName" required></div>
-        <div class="field"><label>SQUADRA</label><select id="teamId" required></select></div>
-        <div class="field"><label>NUMERO</label><input id="number" type="number" min="0" max="99"></div>
-        <div class="field"><label>RUOLO</label><input id="role"></div>
-        <div class="field"><label>POSIZIONE IN CAMPO</label><input id="position"></div>
-        <div class="field"><label>ALTEZZA (CM)</label><input id="height" type="number" min="120" max="230"></div>
-        <div class="field"><label>PIEDE</label><select id="foot"><option>DX</option><option>SX</option><option>AMB</option></select></div>
-        <div class="field"><label>ANNO DI NASCITA</label><input id="birthYear" type="number" min="1970" max="2030"></div>
-        <div class="field"><label>NAZIONALITÀ</label><input id="nationality"></div>
-        <div class="field full"><label>PUNTI DI FORZA</label><textarea id="strengths" rows="3" placeholder="Dribbling 1 vs 1, gioco tra le linee, filtranti..."></textarea></div>
-        <div class="field full"><label>PUNTI DEBOLI</label><textarea id="weaknesses" rows="3"></textarea></div>
-        <div class="field full"><label>NOTE</label><textarea id="notes" rows="3"></textarea></div>
-      </div>
-      <div class="form-actions"><button type="button" class="secondary" data-close="playerModal">ANNULLA</button><button class="primary auto">SALVA GIOCATORE</button></div>
-    </form>
-  </div>
-</div>
+<div class="modal" id="importModal"><div class="sheet import-sheet"><div class="sheet-head"><h2>IMPORTA CARD GIOCATORE</h2><button class="close" data-close="importModal">×</button></div><div id="uploadStage"><label class="dropzone" id="dropzone"><input id="cardFile" type="file" accept="image/*" hidden><div class="drop-icon">＋</div><strong>CARICA LA CARD</strong><span>PNG, JPG o WEBP. Elaborazione locale.</span></label><img id="cardPreview" class="card-preview hidden" alt=""><button id="processCardBtn" class="primary" disabled>ELABORA CARD</button><div id="ocrProgress" class="progressbox hidden"><div class="progressbar"><span id="progressFill"></span></div><div id="progressText">PREPARAZIONE...</div></div></div><form id="importReview" class="hidden"><div class="review-banner">DATI RICONOSCIUTI · CONTROLLA E ARCHIVIA</div><div class="formgrid"><div class="field"><label>NOME</label><input id="iFirstName" required></div><div class="field"><label>COGNOME</label><input id="iLastName" required></div><div class="field"><label>SQUADRA</label><input id="iTeam" required></div><div class="field"><label>NUMERO</label><input id="iNumber" type="number"></div><div class="field"><label>RUOLO</label><select id="iRole"><option>DIFENSORE</option><option>CENTROCAMPISTA</option><option>ATTACCANTE</option></select></div><div class="field"><label>POSIZIONE IN CAMPO</label><input id="iPosition"></div><div class="field"><label>ALTEZZA (CM)</label><input id="iHeight" type="number"></div><div class="field"><label>PIEDE</label><select id="iFoot"><option>DX</option><option>SX</option></select></div><div class="field"><label>ANNO DI NASCITA</label><input id="iBirthYear" type="number"></div><div class="field"><label>NAZIONALITÀ</label><input id="iNationality"></div><div class="field full"><label>PUNTI DI FORZA</label><textarea id="iStrengths" rows="3"></textarea></div><div class="field full"><label>PUNTI DEBOLI</label><textarea id="iWeaknesses" rows="3"></textarea></div></div><div class="form-actions"><button type="button" class="secondary" id="restartImportBtn">RIPETI LETTURA</button><button class="primary auto">ARCHIVIA GIOCATORE</button></div></form></div></div>
 
-<div class="modal" id="teamModal">
-  <div class="sheet small">
-    <div class="sheet-head"><h2>NUOVA SQUADRA</h2><button class="close" data-close="teamModal">×</button></div>
-    <form id="teamForm">
-      <div class="formgrid one">
-        <div class="field"><label>NOME SQUADRA</label><input id="teamName" required></div>
-        <div class="field"><label>NAZIONE</label><input id="teamCountry"></div>
-        <div class="field"><label>COMPETIZIONE</label><input id="teamCompetition"></div>
-      </div>
-      <div class="form-actions"><button type="button" class="secondary" data-close="teamModal">ANNULLA</button><button class="primary auto">SALVA SQUADRA</button></div>
-    </form>
-  </div>
-</div>
-
-<script src="config.js"></script>
-<script src="app.js"></script>
-</body>
-</html>
+<div class="modal" id="playerModal"><div class="sheet"><div class="sheet-head"><h2>MODIFICA GIOCATORE</h2><button class="close" data-close="playerModal">×</button></div><form id="playerForm"><input type="hidden" id="playerId"><div class="formgrid"><div class="field"><label>NOME</label><input id="firstName" required></div><div class="field"><label>COGNOME</label><input id="lastName" required></div><div class="field"><label>SQUADRA</label><select id="teamId" required></select></div><div class="field"><label>NUMERO</label><input id="number" type="number"></div><div class="field"><label>RUOLO</label><select id="role"><option>DIFENSORE</option><option>CENTROCAMPISTA</option><option>ATTACCANTE</option></select></div><div class="field"><label>POSIZIONE IN CAMPO</label><input id="position"></div><div class="field"><label>ALTEZZA (CM)</label><input id="height" type="number"></div><div class="field"><label>PIEDE</label><select id="foot"><option>DX</option><option>SX</option></select></div><div class="field"><label>ANNO DI NASCITA</label><input id="birthYear" type="number"></div><div class="field"><label>NAZIONALITÀ</label><input id="nationality"></div><div class="field full"><label>PUNTI DI FORZA</label><textarea id="strengths" rows="3"></textarea></div><div class="field full"><label>PUNTI DEBOLI</label><textarea id="weaknesses" rows="3"></textarea></div><div class="field full"><label>NOTE</label><textarea id="notes" rows="3"></textarea></div></div><div class="form-actions"><button type="button" class="secondary" data-close="playerModal">ANNULLA</button><button class="primary auto">SALVA MODIFICHE</button></div></form></div></div>
+<div class="modal" id="teamModal"><div class="sheet small"><div class="sheet-head"><h2>NUOVA SQUADRA</h2><button class="close" data-close="teamModal">×</button></div><form id="teamForm"><div class="formgrid one"><div class="field"><label>NOME SQUADRA</label><input id="teamName" required></div><div class="field"><label>NAZIONE</label><input id="teamCountry"></div><div class="field"><label>COMPETIZIONE</label><input id="teamCompetition"></div></div><div class="form-actions"><button type="button" class="secondary" data-close="teamModal">ANNULLA</button><button class="primary auto">SALVA SQUADRA</button></div></form></div></div>
+<script src="config.js"></script><script src="app.js"></script></body></html>

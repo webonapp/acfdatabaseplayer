@@ -1,146 +1,21 @@
-
-const $ = id => document.getElementById(id);
-const configured = window.APP_CONFIG &&
-  window.APP_CONFIG.SUPABASE_URL &&
-  !window.APP_CONFIG.SUPABASE_URL.includes("INSERISCI_QUI") &&
-  window.APP_CONFIG.SUPABASE_PUBLISHABLE_KEY &&
-  !window.APP_CONFIG.SUPABASE_PUBLISHABLE_KEY.includes("INSERISCI_QUI");
-
-let db = null, teams = [], players = [];
-
-if (configured) {
-  db = window.supabase.createClient(window.APP_CONFIG.SUPABASE_URL, window.APP_CONFIG.SUPABASE_PUBLISHABLE_KEY);
-} else {
-  $('setupBanner').classList.remove('hidden');
-}
-
-function age(y){
-  if(!y) return '';
-  const d=new Date(), birthday=new Date(d.getFullYear(),2,1);
-  return d.getFullYear()-Number(y)-(d<birthday?1:0);
-}
-function tags(v){ return Array.isArray(v) ? v : []; }
-function initials(p){ return `${(p.first_name||'')[0]||''}${(p.last_name||'')[0]||''}`; }
-
-async function loadAll(){
-  if(!db) return;
-  const {data:t,error:te}=await db.from('teams').select('*').order('name');
-  if(te) throw te;
-  teams=t||[];
-
-  const {data:p,error:pe}=await db.from('players').select('*, teams(name)').order('updated_at',{ascending:false});
-  if(pe) throw pe;
-  players=p||[];
-
-  populateFilters();
-  renderTeams();
-  renderPlayers();
-  renderStats();
-}
-function renderStats(){
-  $('totalPlayers').textContent=players.length;
-  $('totalTeams').textContent=teams.length;
-  $('totalNations').textContent=new Set(players.map(p=>p.nationality).filter(Boolean)).size;
-  $('totalAnalysis').textContent=players.length;
-}
-function populateFilters(){
-  $('fTeam').innerHTML='<option value="">Tutte</option>'+teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-  $('teamId').innerHTML=teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-  preserve('fRole',[...new Set(players.map(p=>p.role).filter(Boolean))].sort(),'Tutti');
-  preserve('fNation',[...new Set(players.map(p=>p.nationality).filter(Boolean))].sort(),'Tutte');
-  preserve('fYear',[...new Set(players.map(p=>p.birth_year).filter(Boolean))].sort((a,b)=>b-a),'Tutti');
-}
-function preserve(id,arr,label){
-  const el=$(id),v=el.value;
-  el.innerHTML=`<option value="">${label}</option>`+arr.map(x=>`<option>${x}</option>`).join('');
-  el.value=v;
-}
-function renderTeams(){
-  const counts={}; players.forEach(p=>counts[p.team_id]=(counts[p.team_id]||0)+1);
-  $('teamList').innerHTML=teams
-    .map(t=>({...t,count:counts[t.id]||0}))
-    .sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name))
-    .slice(0,6)
-    .map(t=>`<div class="team-row"><div class="team-name">${t.name}</div><div class="team-count">${t.count}</div></div>`).join('');
-}
-function matches(p){
-  const q=($('q').value||'').trim().toLowerCase();
-  const team=$('fTeam').value, role=$('fRole').value, foot=$('fFoot').value, nation=$('fNation').value, year=$('fYear').value;
-  const hay=[
-    p.first_name,p.last_name,p.teams?.name,p.role,p.position,p.foot,p.birth_year,p.nationality,
-    ...tags(p.strengths),...tags(p.weaknesses),p.notes
-  ].join(' ').toLowerCase();
-  return (!q||hay.includes(q)) &&
-    (!team||String(p.team_id)===team) &&
-    (!role||p.role===role) &&
-    (!foot||p.foot===foot) &&
-    (!nation||p.nationality===nation) &&
-    (!year||String(p.birth_year)===year);
-}
-function renderPlayers(){
-  const out=players.filter(matches);
-  $('tbody').innerHTML=out.map(p=>`<tr>
-    <td><div class="playercell"><div class="pface">${initials(p)}</div><span class="num">${p.number ?? '-'}</span><span class="playername">${p.first_name} ${p.last_name}</span></div></td>
-    <td class="teamtxt">${p.teams?.name||'-'}</td><td>${p.role||'-'}</td><td>${p.birth_year||'-'}</td><td>${p.foot||'-'}</td>
-    <td>${age(p.birth_year)}</td><td>${p.nationality||'-'}</td>
-    <td><button class="action-btn" onclick="editPlayer('${p.id}')">MODIFICA</button> <button class="action-btn" onclick="deletePlayer('${p.id}')">ELIMINA</button></td>
-  </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:28px;color:#777">Nessun giocatore trovato</td></tr>';
-}
-function openModal(id){$(id).classList.add('open')}
-function closeModal(id){$(id).classList.remove('open')}
-function resetPlayerForm(){$('playerForm').reset();$('playerId').value='';$('modalTitle').textContent='NUOVO GIOCATORE'}
-
-$('newPlayerBtn').onclick=()=>{resetPlayerForm();openModal('playerModal')};
-$('newTeamBtn').onclick=()=>openModal('teamModal');
-document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));
-['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).addEventListener(id==='q'?'input':'change',renderPlayers));
-$('searchBtn').onclick=renderPlayers;$('filterBtn').onclick=renderPlayers;
-$('resetBtn').onclick=()=>{['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).value='');renderPlayers()};
-
-$('teamForm').onsubmit=async e=>{
-  e.preventDefault(); if(!db)return;
-  const {error}=await db.from('teams').insert({
-    name:$('teamName').value.trim(),
-    country:$('teamCountry').value.trim(),
-    competition:$('teamCompetition').value.trim()
-  });
-  if(error)return alert(error.message);
-  $('teamForm').reset();closeModal('teamModal');await loadAll();
-};
-
-$('playerForm').onsubmit=async e=>{
-  e.preventDefault(); if(!db)return;
-  const payload={
-    first_name:$('firstName').value.trim(),last_name:$('lastName').value.trim(),team_id:$('teamId').value,
-    number:$('number').value?Number($('number').value):null,role:$('role').value.trim(),position:$('position').value.trim(),
-    height:$('height').value?Number($('height').value):null,foot:$('foot').value,
-    birth_year:$('birthYear').value?Number($('birthYear').value):null,nationality:$('nationality').value.trim(),
-    strengths:$('strengths').value.split(',').map(x=>x.trim()).filter(Boolean),
-    weaknesses:$('weaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),notes:$('notes').value.trim(),
-    updated_at:new Date().toISOString()
-  };
-  const id=$('playerId').value;
-  const query=id ? db.from('players').update(payload).eq('id',id) : db.from('players').insert(payload);
-  const {error}=await query;
-  if(error)return alert(error.message);
-  closeModal('playerModal');await loadAll();
-};
-
-window.editPlayer=id=>{
-  const p=players.find(x=>String(x.id)===String(id));if(!p)return;
-  $('playerId').value=p.id;$('modalTitle').textContent='MODIFICA GIOCATORE';
-  $('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamId').value=p.team_id||'';
-  $('number').value=p.number??'';$('role').value=p.role||'';$('position').value=p.position||'';$('height').value=p.height??'';
-  $('foot').value=p.foot||'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=p.nationality||'';
-  $('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';
-  openModal('playerModal');
-};
-window.deletePlayer=async id=>{
-  if(!db||!confirm('Eliminare questo giocatore?'))return;
-  const {error}=await db.from('players').delete().eq('id',id);
-  if(error)return alert(error.message);
-  await loadAll();
-};
-
-if('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(()=>{});
-loadAll().catch(e=>alert(e.message));
+const $=id=>document.getElementById(id);const cfg=window.APP_CONFIG||{};const configured=cfg.SUPABASE_URL&&!cfg.SUPABASE_URL.includes('INSERISCI_QUI')&&cfg.SUPABASE_PUBLISHABLE_KEY&&!cfg.SUPABASE_PUBLISHABLE_KEY.includes('INSERISCI_QUI');let db=configured?window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_PUBLISHABLE_KEY):null,teams=[],players=[],selectedFile=null;if(!configured)$('setupBanner').classList.remove('hidden');
+function age(y){if(!y)return'';const d=new Date(),b=new Date(d.getFullYear(),2,1);return d.getFullYear()-Number(y)-(d<b?1:0)}function tags(v){return Array.isArray(v)?v:[]}function norm(v){return String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()}function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}function initials(p){return`${(p.first_name||'')[0]||''}${(p.last_name||'')[0]||''}`}
+async function loadAll(){if(!db)return;const{data:t,error:te}=await db.from('teams').select('*').order('name');if(te)throw te;teams=t||[];const{data:p,error:pe}=await db.from('players').select('*, teams(name)').order('updated_at',{ascending:false});if(pe)throw pe;players=p||[];populateFilters();renderDashboard();renderPlayersPage();renderTeamsPage();renderStats()}
+function preserve(id,a,l){const e=$(id),v=e.value;e.innerHTML=`<option value="">${l}</option>`+a.map(x=>`<option>${esc(x)}</option>`).join('');e.value=v}function populateFilters(){$('fTeam').innerHTML='<option value="">Tutte</option>'+teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');$('teamId').innerHTML=teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');preserve('fNation',[...new Set(players.map(p=>p.nationality).filter(Boolean))].sort(),'Tutte');preserve('fYear',[...new Set(players.map(p=>p.birth_year).filter(Boolean))].sort((a,b)=>b-a),'Tutti')}
+function matches(p){const q=norm($('q').value),team=$('fTeam').value,role=$('fRole').value,foot=$('fFoot').value,n=$('fNation').value,y=$('fYear').value,hay=norm([p.first_name,p.last_name,p.teams?.name,p.role,p.position,p.foot,p.birth_year,p.nationality,...tags(p.strengths),...tags(p.weaknesses),p.notes].join(' '));return(!q||hay.includes(q))&&(!team||String(p.team_id)===team)&&(!role||norm(p.role)===norm(role))&&(!foot||p.foot===foot)&&(!n||p.nationality===n)&&(!y||String(p.birth_year)===y)}
+function row(p){return`<tr><td><div class="playercell"><div class="pface">${esc(initials(p))}</div><span class="num">${p.number??'-'}</span><span class="playername">${esc(p.first_name)} ${esc(p.last_name)}</span></div></td><td class="teamtxt">${esc(p.teams?.name||'-')}</td><td>${esc(p.role||'-')}</td><td>${p.birth_year||'-'}</td><td>${esc(p.foot||'-')}</td><td>${age(p.birth_year)}</td><td>${esc(p.nationality||'-')}</td><td><button class="action-btn" onclick="editPlayer('${p.id}')">MODIFICA</button></td></tr>`}
+function renderDashboard(){$('totalPlayers').textContent=players.length;$('totalTeams').textContent=teams.length;$('totalNations').textContent=new Set(players.map(p=>p.nationality).filter(Boolean)).size;$('totalAnalysis').textContent=players.length;const c={};players.forEach(p=>c[p.team_id]=(c[p.team_id]||0)+1);$('teamList').innerHTML=teams.map(t=>({...t,count:c[t.id]||0})).sort((a,b)=>b.count-a.count).slice(0,6).map(t=>`<div class="team-row"><div class="team-name">${esc(t.name)}</div><div class="team-count">${t.count}</div></div>`).join('');$('tbody').innerHTML=players.filter(matches).slice(0,12).map(row).join('')||'<tr><td colspan="8" style="text-align:center;padding:28px;color:#777">Nessun giocatore trovato</td></tr>'}
+function sortedPlayers(){const q=norm($('playersSearch')?.value||'');let out=players.filter(p=>!q||norm([p.first_name,p.last_name,p.teams?.name,p.role,p.nationality,...tags(p.strengths),...tags(p.weaknesses)].join(' ')).includes(q)),m=$('playerSort')?.value||'alphabetical',rr={DIFENSORE:1,CENTROCAMPISTA:2,ATTACCANTE:3};out.sort((a,b)=>m==='age'?age(a.birth_year)-age(b.birth_year)||a.last_name.localeCompare(b.last_name):m==='foot'?String(a.foot).localeCompare(String(b.foot))||a.last_name.localeCompare(b.last_name):m==='role'?(rr[String(a.role).toUpperCase()]||9)-(rr[String(b.role).toUpperCase()]||9)||a.last_name.localeCompare(b.last_name):m==='nationality'?String(a.nationality||'').localeCompare(String(b.nationality||''))||a.last_name.localeCompare(b.last_name):`${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));return out}
+function renderPlayersPage(){$('playerGrid').innerHTML=sortedPlayers().map(p=>`<article class="player-card"><div class="player-card-head"><div class="pface">${esc(initials(p))}</div><div><h3>${esc(p.last_name)} ${esc(p.first_name)}</h3><div class="sub">${esc(p.teams?.name||'-')} · ${esc(p.role||'-')} · ${age(p.birth_year)} anni · ${esc(p.foot||'-')}</div></div></div><div class="chips">${tags(p.strengths).slice(0,4).map(s=>`<span class="chip">${esc(s)}</span>`).join('')}</div><div class="player-card-actions"><button class="secondary" onclick="editPlayer('${p.id}')">MODIFICA</button><button class="secondary" onclick="deletePlayer('${p.id}')">ELIMINA</button></div></article>`).join('')||'<div style="padding:30px;color:#777">Nessun giocatore.</div>'}
+function renderTeamsPage(){const c={};players.forEach(p=>c[p.team_id]=(c[p.team_id]||0)+1);$('teamsGrid').innerHTML=teams.map(t=>`<article class="team-card"><h3>${esc(t.name)}</h3><p>${esc(t.country||'')} ${t.competition?'· '+esc(t.competition):''}</p><div class="bigstat">${c[t.id]||0}</div><p>giocatori archiviati</p><button class="secondary" onclick="openTeamPlayers('${t.id}')">VEDI GIOCATORI</button></article>`).join('')}
+function renderStats(){const r={DIFENSORE:0,CENTROCAMPISTA:0,ATTACCANTE:0};players.forEach(p=>{const x=String(p.role||'').toUpperCase();if(x in r)r[x]++});$('statsGrid').innerHTML=[['GIOCATORI',players.length],['SQUADRE',teams.length],['NAZIONALITÀ',new Set(players.map(p=>p.nationality).filter(Boolean)).size],['DIFENSORI',r.DIFENSORE],['CENTROCAMPISTI',r.CENTROCAMPISTA],['ATTACCANTI',r.ATTACCANTE]].map(([l,v])=>`<div class="stat-card"><h3>${l}</h3><div class="bigstat">${v}</div></div>`).join('')}
+function showView(n){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+n)?.classList.add('active');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===n));if(n==='players')renderPlayersPage();if(n==='teams')renderTeamsPage();if(n==='stats')renderStats();$('sidebar').classList.remove('mobile-open');scrollTo({top:0,behavior:'smooth'})}document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showView(b.dataset.go));$('menuBtn').onclick=()=>$('sidebar').classList.toggle('mobile-open');['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).addEventListener(id==='q'?'input':'change',renderDashboard));$('searchBtn').onclick=renderDashboard;$('filterBtn').onclick=renderDashboard;$('resetBtn').onclick=()=>{['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).value='');renderDashboard()};$('playersSearch').oninput=renderPlayersPage;$('playerSort').onchange=renderPlayersPage;
+function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));['importCardBtn','playersImportBtn','settingsImportBtn'].forEach(id=>$(id).onclick=()=>{resetImport();openModal('importModal')});$('manualTeamBtn').onclick=()=>openModal('teamModal');
+$('teamForm').onsubmit=async e=>{e.preventDefault();if(!db)return;const{error}=await db.from('teams').insert({name:$('teamName').value.trim(),country:$('teamCountry').value.trim(),competition:$('teamCompetition').value.trim()});if(error)return alert(error.message);$('teamForm').reset();closeModal('teamModal');await loadAll()};
+function normalizeRole(v){const n=norm(v);if(n.includes('dif')||n.includes('terz')||n.includes('bracc'))return'DIFENSORE';if(n.includes('centr')||n.includes('mezz')||n.includes('med')||n.includes('trequart'))return'CENTROCAMPISTA';return'ATTACCANTE'}
+window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamId').value=p.team_id||'';$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=p.foot==='SX'?'SX':'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=p.nationality||'';$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{e.preventDefault();const p={first_name:$('firstName').value.trim(),last_name:$('lastName').value.trim(),team_id:$('teamId').value,number:$('number').value?+$('number').value:null,role:$('role').value,position:$('position').value.trim(),height:$('height').value?+$('height').value:null,foot:$('foot').value,birth_year:$('birthYear').value?+$('birthYear').value:null,nationality:$('nationality').value.trim(),strengths:$('strengths').value.split(',').map(x=>x.trim()).filter(Boolean),weaknesses:$('weaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),notes:$('notes').value.trim(),updated_at:new Date().toISOString()};const{error}=await db.from('players').update(p).eq('id',$('playerId').value);if(error)return alert(error.message);closeModal('playerModal');await loadAll()};window.deletePlayer=async id=>{if(!confirm('Eliminare questo giocatore?'))return;const{error}=await db.from('players').delete().eq('id',id);if(error)return alert(error.message);await loadAll()};window.openTeamPlayers=id=>{showView('players');const t=teams.find(x=>String(x.id)===String(id));if(t)$('playersSearch').value=t.name;renderPlayersPage()};
+$('cardFile').onchange=e=>selectFile(e.target.files?.[0]);$('dropzone').ondragover=e=>e.preventDefault();$('dropzone').ondrop=e=>{e.preventDefault();selectFile(e.dataTransfer.files?.[0])};function selectFile(f){if(!f||!f.type.startsWith('image/'))return;selectedFile=f;$('cardPreview').src=URL.createObjectURL(f);$('cardPreview').classList.remove('hidden');$('processCardBtn').disabled=false}function resetImport(){selectedFile=null;$('cardFile').value='';$('cardPreview').classList.add('hidden');$('processCardBtn').disabled=true;$('ocrProgress').classList.add('hidden');$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden');$('progressFill').style.width='0%'}$('restartImportBtn').onclick=()=>{$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden')};$('processCardBtn').onclick=processCard;
+async function processCard(){if(!selectedFile)return;$('ocrProgress').classList.remove('hidden');$('processCardBtn').disabled=true;try{const result=await Tesseract.recognize(selectedFile,'ita+eng',{logger:m=>{if(m.status==='recognizing text'){const p=Math.round((m.progress||0)*100);$('progressFill').style.width=p+'%';$('progressText').textContent=`LETTURA CARD ${p}%`}else $('progressText').textContent=String(m.status||'PREPARAZIONE').toUpperCase()}});fillImport(parseText(result.data.text||''));$('uploadStage').classList.add('hidden');$('importReview').classList.remove('hidden')}catch(e){console.error(e);alert('Non sono riuscito a leggere la card. Prova con una foto più nitida.')}finally{$('processCardBtn').disabled=false}}
+function parseText(text){const lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean),clean=lines.join(' '),up=clean.toUpperCase();let role=/DIFENSORE|TERZINO|CENTRALE DIFENSIVO/.test(up)?'DIFENSORE':/CENTROCAMPISTA|MEZZALA|MEDIANO|TREQUARTISTA/.test(up)?'CENTROCAMPISTA':'ATTACCANTE',height=(clean.match(/\b(1[5-9]\d|2[0-1]\d)\s*CM\b/i)||[])[1]||'',year=(clean.match(/\((19\d{2}|20\d{2})\)/)||clean.match(/\b(19\d{2}|20\d{2})\b/)||[])[1]||'',foot=(clean.match(/\b(DX|SX)\b/i)||[])[1]?.toUpperCase()||'DX',team='';for(const t of teams)if(norm(clean).includes(norm(t.name))){team=t.name;break}const blacklist=/ATTACCANTE|DIFENSORE|CENTROCAMPISTA|ALTEZZA|PIEDE|ETA|ETÀ|CM|PLAYER|DATABASE/i,cands=lines.filter(l=>/[A-Za-zÀ-ÿ]/.test(l)&&!blacklist.test(l)&&l.length<45),nameLine=cands.find(l=>l!==team&&l.split(/\s+/).length>=2)||'',parts=nameLine.replace(/[^A-Za-zÀ-ÿ' -]/g,'').split(/\s+/).filter(Boolean);return{first:parts.length>1?parts.slice(0,-1).join(' '):'',last:parts.length>1?parts.at(-1):'',team,number:'',role,height,foot,year,nationality:'',strengths:[],weaknesses:[]}}
+function fillImport(p){$('iFirstName').value=p.first||'';$('iLastName').value=p.last||'';$('iTeam').value=p.team||'';$('iNumber').value=p.number||'';$('iRole').value=p.role||'ATTACCANTE';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=p.foot==='SX'?'SX':'DX';$('iBirthYear').value=p.year||'';$('iNationality').value=p.nationality||'';$('iStrengths').value=(p.strengths||[]).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).join(', ')}
+$('importReview').onsubmit=async e=>{e.preventDefault();if(!db)return alert('Supabase non configurato.');const teamName=$('iTeam').value.trim();let team=teams.find(t=>norm(t.name)===norm(teamName));if(!team){const{data,error}=await db.from('teams').insert({name:teamName,country:'',competition:''}).select().single();if(error)return alert('Errore squadra: '+error.message);team=data}const payload={first_name:$('iFirstName').value.trim(),last_name:$('iLastName').value.trim(),team_id:team.id,number:$('iNumber').value?+$('iNumber').value:null,role:$('iRole').value,position:$('iPosition').value.trim(),height:$('iHeight').value?+$('iHeight').value:null,foot:$('iFoot').value,birth_year:$('iBirthYear').value?+$('iBirthYear').value:null,nationality:$('iNationality').value.trim(),strengths:$('iStrengths').value.split(',').map(x=>x.trim()).filter(Boolean),weaknesses:$('iWeaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),notes:'Importato automaticamente da card',updated_at:new Date().toISOString()};const{error}=await db.from('players').insert(payload);if(error)return alert('Errore archiviazione: '+error.message);closeModal('importModal');resetImport();await loadAll();showView('players')};loadAll().catch(e=>{console.error(e);alert(e.message)});
