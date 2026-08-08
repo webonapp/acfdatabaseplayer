@@ -98,26 +98,69 @@ function detectFlagNationality(img){
 }
 async function processCard(){
  if(!selectedFile)return;
- $('ocrProgress').classList.remove('hidden');$('processCardBtn').disabled=true;
- const img=await fileToImage(selectedFile);
- const canvas=document.createElement('canvas');
- const scale=Math.min(1,1800/img.naturalWidth);
- canvas.width=Math.round(img.naturalWidth*scale);
- canvas.height=Math.round(img.naturalHeight*scale);
- const ctx=canvas.getContext('2d');
- ctx.drawImage(img,0,0,canvas.width,canvas.height);
+ $('ocrProgress').classList.remove('hidden');
+ $('processCardBtn').disabled=true;
+ $('progressFill').style.width='3%';
+ $('progressText').textContent='AVVIO LETTORE...';
+
+ let worker=null;
  try{
-   $('progressText').textContent='LETTURA STRUTTURATA DELLA CARD...';
-   $('progressFill').style.width='35%';
-   const parsed=await parseCardStructured(canvas);
+   const img=await loadImage(selectedFile);
+
+   $('progressText').textContent='CARICAMENTO MOTORE OCR...';
+   $('progressFill').style.width='8%';
+
+   worker=await Tesseract.createWorker('eng',1,{
+     logger:m=>{
+       if(m.status==='loading tesseract core') $('progressText').textContent='CARICAMENTO LETTORE...';
+       else if(m.status==='initializing tesseract') $('progressText').textContent='INIZIALIZZAZIONE...';
+       else if(m.status==='loading language traineddata') $('progressText').textContent='CARICAMENTO MODELLO...';
+       else if(m.status==='initializing api') $('progressText').textContent='PREPARAZIONE LETTURA...';
+     }
+   });
+
+   const keys=['role','first','last','team','number','height','foot','year','strengths','weaknesses'];
+   const raw={};
+
+   for(let i=0;i<keys.length;i++){
+     const key=keys[i];
+     $('progressText').textContent='LETTURA '+key.toUpperCase()+'...';
+     $('progressFill').style.width=(15+Math.round((i/keys.length)*75))+'%';
+     raw[key]=await readRegion(worker,img,key);
+   }
+
+   const parsed={
+     first:cleanFieldText(raw.first),
+     last:cleanFieldText(raw.last),
+     team:cleanFieldText(raw.team),
+     number:cleanDigits(raw.number).slice(0,2),
+     role:normalizeCardRole(raw.role),
+     position:'',
+     height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
+     foot:/SX/i.test(raw.foot)?'SX':'DX',
+     year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
+     nationality:detectFlagNationality(img),
+     strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).filter(Boolean),
+     weaknesses:cleanMulti(raw.weaknesses).split('\n').map(cleanFieldText).filter(Boolean)
+   };
+
    $('progressFill').style.width='100%';
+   $('progressText').textContent='LETTURA COMPLETATA';
    fillImport(parsed);
-   $('uploadStage').classList.add('hidden');
-   $('importReview').classList.remove('hidden');
+
+   setTimeout(()=>{
+     $('uploadStage').classList.add('hidden');
+     $('importReview').classList.remove('hidden');
+   },120);
+
  }catch(err){
    console.error(err);
-   alert('Non sono riuscito a leggere correttamente la card. Verifica che il layout sia quello standard.');
+   $('progressText').textContent='ERRORE LETTURA';
+   alert('Errore durante la lettura della card: '+(err?.message||err));
  }finally{
+   if(worker){
+     try{await worker.terminate()}catch(_){}
+   }
    $('processCardBtn').disabled=false;
  }
 }
