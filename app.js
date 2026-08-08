@@ -1,5 +1,120 @@
 const $=id=>document.getElementById(id);const cfg=window.APP_CONFIG||{};const configured=cfg.SUPABASE_URL&&!cfg.SUPABASE_URL.includes('INSERISCI_QUI')&&cfg.SUPABASE_PUBLISHABLE_KEY&&!cfg.SUPABASE_PUBLISHABLE_KEY.includes('INSERISCI_QUI');let db=configured?window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_PUBLISHABLE_KEY):null,teams=[],players=[],selectedFile=null;if(!configured)$('setupBanner').classList.remove('hidden');
 
+let currentSession=null;
+let authBooted=false;
+
+function setLoginError(message=''){
+  const box=$('loginError');
+  if(!box)return;
+  box.textContent=message||'';
+  box.classList.toggle('hidden',!message);
+}
+
+function showLogin(message=''){
+  currentSession=null;
+  document.body.classList.add('auth-locked');
+  $('authGate')?.classList.remove('hidden');
+  setLoginError(message);
+  setTimeout(()=>$('loginEmail')?.focus(),50);
+}
+
+function hideLogin(session){
+  currentSession=session||null;
+  document.body.classList.remove('auth-locked');
+  $('authGate')?.classList.add('hidden');
+  setLoginError('');
+  const mail=session?.user?.email||'';
+  if($('sideAccountEmail')) $('sideAccountEmail').textContent=mail;
+}
+
+async function loginWithPassword(email,password){
+  if(!db) throw new Error('Supabase non configurato.');
+  if(!email) throw new Error('Inserisci l’email.');
+  if(!password) throw new Error('Inserisci la password.');
+
+  const {data,error}=await db.auth.signInWithPassword({
+    email:email.trim(),
+    password
+  });
+
+  if(error){
+    if(error.message?.toLowerCase().includes('invalid login credentials')){
+      throw new Error('Email o password non corretti.');
+    }
+    if(error.message?.toLowerCase().includes('email not confirmed')){
+      throw new Error('Email non confermata su Supabase.');
+    }
+    throw error;
+  }
+
+  if(!data?.session) throw new Error('Accesso non completato.');
+  return data.session;
+}
+
+async function logout(){
+  if(!db)return;
+  const {error}=await db.auth.signOut();
+  if(error){
+    alert('Errore logout: '+error.message);
+    return;
+  }
+  currentSession=null;
+  teams=[];
+  players=[];
+  showLogin();
+}
+
+async function initializeAuth(){
+  if(authBooted)return;
+  authBooted=true;
+
+  if(!db){
+    showLogin('Supabase non configurato.');
+    return;
+  }
+
+  const {data,error}=await db.auth.getSession();
+  if(error){
+    showLogin(error.message);
+    return;
+  }
+
+  if(data?.session){
+    hideLogin(data.session);
+    try{
+      await loadAll();
+    }catch(err){
+      console.error(err);
+      alert('Accesso effettuato, ma il database ha restituito un errore: '+(err?.message||err));
+    }
+  }else{
+    showLogin();
+  }
+
+  db.auth.onAuthStateChange((event,session)=>{
+    if(event==='SIGNED_OUT'||!session){
+      currentSession=null;
+      showLogin();
+      return;
+    }
+    currentSession=session;
+    hideLogin(session);
+  });
+}
+
+async function ensureWriteSession(){
+  if(!db) throw new Error('Supabase non configurato.');
+  const {data,error}=await db.auth.getSession();
+  if(error) throw error;
+  if(!data?.session){
+    showLogin('Sessione scaduta. Effettua nuovamente il login.');
+    throw new Error('Sessione scaduta.');
+  }
+  currentSession=data.session;
+  return data.session;
+}
+
+
 // Nazioni disponibili: bandiera emoji + nome. Nessun file esterno necessario.
 const COUNTRIES=[
 ['AF','AFGHANISTAN'],['AL','ALBANIA'],['DZ','ALGERIA'],['AD','ANDORRA'],['AO','ANGOLA'],['AG','ANTIGUA E BARBUDA'],['SA','ARABIA SAUDITA'],['AR','ARGENTINA'],['AM','ARMENIA'],['AU','AUSTRALIA'],['AT','AUSTRIA'],['AZ','AZERBAIGIAN'],['BS','BAHAMAS'],['BH','BAHRAIN'],['BD','BANGLADESH'],['BB','BARBADOS'],['BE','BELGIO'],['BZ','BELIZE'],['BJ','BENIN'],['BT','BHUTAN'],['BY','BIELORUSSIA'],['BO','BOLIVIA'],['BA','BOSNIA ED ERZEGOVINA'],['BW','BOTSWANA'],['BR','BRASILE'],['BN','BRUNEI'],['BG','BULGARIA'],['BF','BURKINA FASO'],['BI','BURUNDI'],['KH','CAMBOGIA'],['CM','CAMERUN'],['CA','CANADA'],['CV','CAPO VERDE'],['TD','CIAD'],['CL','CILE'],['CN','CINA'],['CY','CIPRO'],['CO','COLOMBIA'],['KM','COMORE'],['CG','CONGO'],['CD','REPUBBLICA DEMOCRATICA DEL CONGO'],['KP','COREA DEL NORD'],['KR','COREA DEL SUD'],['CI','COSTA D’AVORIO'],['CR','COSTA RICA'],['HR','CROAZIA'],['CU','CUBA'],['DK','DANIMARCA'],['DM','DOMINICA'],['EC','ECUADOR'],['EG','EGITTO'],['SV','EL SALVADOR'],['AE','EMIRATI ARABI UNITI'],['ER','ERITREA'],['EE','ESTONIA'],['SZ','ESWATINI'],['ET','ETIOPIA'],['FJ','FIJI'],['PH','FILIPPINE'],['FI','FINLANDIA'],['FR','FRANCIA'],['GA','GABON'],['GM','GAMBIA'],['GE','GEORGIA'],['DE','GERMANIA'],['GH','GHANA'],['JM','GIAMAICA'],['JP','GIAPPONE'],['DJ','GIBUTI'],['JO','GIORDANIA'],['GR','GRECIA'],['GD','GRENADA'],['GT','GUATEMALA'],['GN','GUINEA'],['GW','GUINEA-BISSAU'],['GQ','GUINEA EQUATORIALE'],['GY','GUYANA'],['HT','HAITI'],['HN','HONDURAS'],['IN','INDIA'],['ID','INDONESIA'],['IR','IRAN'],['IQ','IRAQ'],['IE','IRLANDA'],['IS','ISLANDA'],['IL','ISRAELE'],['IT','ITALIA'],['KZ','KAZAKISTAN'],['KE','KENYA'],['KG','KIRGHIZISTAN'],['KI','KIRIBATI'],['KW','KUWAIT'],['LA','LAOS'],['LS','LESOTHO'],['LV','LETTONIA'],['LB','LIBANO'],['LR','LIBERIA'],['LY','LIBIA'],['LI','LIECHTENSTEIN'],['LT','LITUANIA'],['LU','LUSSEMBURGO'],['MK','MACEDONIA DEL NORD'],['MG','MADAGASCAR'],['MW','MALAWI'],['MY','MALESIA'],['MV','MALDIVE'],['ML','MALI'],['MT','MALTA'],['MA','MAROCCO'],['MH','ISOLE MARSHALL'],['MR','MAURITANIA'],['MU','MAURITIUS'],['MX','MESSICO'],['FM','MICRONESIA'],['MD','MOLDAVIA'],['MC','MONACO'],['MN','MONGOLIA'],['ME','MONTENEGRO'],['MZ','MOZAMBICO'],['MM','MYANMAR'],['NA','NAMIBIA'],['NR','NAURU'],['NP','NEPAL'],['NI','NICARAGUA'],['NE','NIGER'],['NG','NIGERIA'],['NO','NORVEGIA'],['NZ','NUOVA ZELANDA'],['OM','OMAN'],['NL','PAESI BASSI'],['PK','PAKISTAN'],['PW','PALAU'],['PS','PALESTINA'],['PA','PANAMA'],['PG','PAPUA NUOVA GUINEA'],['PY','PARAGUAY'],['PE','PERÙ'],['PL','POLONIA'],['PT','PORTOGALLO'],['QA','QATAR'],['GB','REGNO UNITO'],['CZ','REPUBBLICA CECA'],['CF','REPUBBLICA CENTRAFRICANA'],['DO','REPUBBLICA DOMINICANA'],['RO','ROMANIA'],['RW','RUANDA'],['RU','RUSSIA'],['KN','SAINT KITTS E NEVIS'],['LC','SAINT LUCIA'],['VC','SAINT VINCENT E GRENADINE'],['WS','SAMOA'],['SM','SAN MARINO'],['ST','SÃO TOMÉ E PRÍNCIPE'],['SN','SENEGAL'],['RS','SERBIA'],['SC','SEYCHELLES'],['SL','SIERRA LEONE'],['SG','SINGAPORE'],['SY','SIRIA'],['SK','SLOVACCHIA'],['SI','SLOVENIA'],['SB','ISOLE SALOMONE'],['SO','SOMALIA'],['ES','SPAGNA'],['LK','SRI LANKA'],['US','STATI UNITI'],['ZA','SUDAFRICA'],['SD','SUDAN'],['SS','SUD SUDAN'],['SR','SURINAME'],['SE','SVEZIA'],['CH','SVIZZERA'],['TJ','TAGIKISTAN'],['TW','TAIWAN'],['TZ','TANZANIA'],['TH','THAILANDIA'],['TL','TIMOR EST'],['TG','TOGO'],['TO','TONGA'],['TT','TRINIDAD E TOBAGO'],['TN','TUNISIA'],['TR','TURCHIA'],['TM','TURKMENISTAN'],['TV','TUVALU'],['UA','UCRAINA'],['UG','UGANDA'],['HU','UNGHERIA'],['UY','URUGUAY'],['UZ','UZBEKISTAN'],['VU','VANUATU'],['VA','CITTÀ DEL VATICANO'],['VE','VENEZUELA'],['VN','VIETNAM'],['YE','YEMEN'],['ZM','ZAMBIA'],['ZW','ZIMBABWE'],
@@ -17,7 +132,7 @@ function populateCountrySelects(){
 }
 
 function age(y){if(!y)return'';const d=new Date(),b=new Date(d.getFullYear(),2,1);return d.getFullYear()-Number(y)-(d<b?1:0)}function tags(v){return Array.isArray(v)?v:[]}function norm(v){return String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()}function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}function initials(p){return`${(p.first_name||'')[0]||''}${(p.last_name||'')[0]||''}`}
-async function loadAll(){if(!db)return;const{data:t,error:te}=await db.from('teams').select('*').order('name');if(te)throw te;teams=t||[];const{data:p,error:pe}=await db.from('players').select('*, teams(name)').order('updated_at',{ascending:false});if(pe)throw pe;players=p||[];populateFilters();renderDashboard();renderPlayersPage();renderTeamsPage();renderStats()}
+async function loadAll(){if(!db||!currentSession)return;const{data:t,error:te}=await db.from('teams').select('*').order('name');if(te)throw te;teams=t||[];const{data:p,error:pe}=await db.from('players').select('*, teams(name)').order('updated_at',{ascending:false});if(pe)throw pe;players=p||[];populateFilters();renderDashboard();renderPlayersPage();renderTeamsPage();renderStats()}
 function preserve(id,a,l){const e=$(id),v=e.value;e.innerHTML=`<option value="">${l}</option>`+a.map(x=>`<option>${esc(x)}</option>`).join('');e.value=v}
 function populateFilters(){
  $('fTeam').innerHTML='<option value="">Tutte</option>'+teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
@@ -363,31 +478,37 @@ $('archiveAllBtn')?.addEventListener('click',async()=>{
 $('importReview').addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();
  if(batchMode){saveCurrentReviewToBatch();}await archiveImportedPlayer();});populateCountrySelects();
 
-$('loginForm').addEventListener('submit',async e=>{
+$('loginForm')?.addEventListener('submit',async e=>{
   e.preventDefault();
+  e.stopPropagation();
+
   const btn=$('loginBtn');
-  const email=$('loginEmail').value.trim();
-  const password=$('loginPassword').value;
-  $('loginError').classList.add('hidden');
-  btn.disabled=true;btn.textContent='ACCESSO...';
+  const email=$('loginEmail')?.value?.trim()||'';
+  const password=$('loginPassword')?.value||'';
+
+  setLoginError('');
+  if(btn){btn.disabled=true;btn.textContent='ACCESSO...';}
+
   try{
     const session=await loginWithPassword(email,password);
     hideLogin(session);
-    $('loginPassword').value='';
+    if($('loginPassword')) $('loginPassword').value='';
     await loadAll();
   }catch(err){
-    console.error(err);
-    showLogin(err?.message||'Email o password non corretti.');
+    console.error('Login error:',err);
+    showLogin(err?.message||'Impossibile effettuare l’accesso.');
   }finally{
-    btn.disabled=false;btn.textContent='ACCEDI';
+    if(btn){btn.disabled=false;btn.textContent='ACCEDI';}
   }
 });
-$('togglePassword').addEventListener('click',()=>{
+$('togglePassword')?.addEventListener('click',()=>{
   const input=$('loginPassword');
+  if(!input)return;
   const visible=input.type==='text';
   input.type=visible?'password':'text';
   $('togglePassword').textContent=visible?'MOSTRA':'NASCONDI';
 });
-$('logoutBtn')?.addEventListener('click',logout);
 
+
+$('logoutBtn')?.addEventListener('click',logout);
 initializeAuth().catch(e=>{console.error(e);showLogin(e.message)});

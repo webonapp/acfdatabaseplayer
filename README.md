@@ -48,3 +48,23 @@ La sessione viene conservata dal client Supabase nel browser e il logout usa `su
   - archiviare la card corrente;
   - archiviare tutte le card in batch.
 - Le immagini originali restano temporanee nel browser e non vengono archiviate.
+
+
+## V12 - Authentication fix
+
+Correzioni:
+- Login email/password completamente collegato a `supabase.auth.signInWithPassword`.
+- Rimossi riferimenti visivi a Supabase dalla schermata di login.
+- Nessun accesso anonimo.
+- Lettura/scrittura database consentita solo con sessione autenticata.
+- Gestione sessione scaduta e logout.
+- Messaggi di errore login più chiari.
+- Cache aggiornata per evitare che GitHub Pages carichi JavaScript vecchio.
+
+### Supabase
+In Authentication:
+1. Providers > Email: abilita Email.
+2. Users: crea l'utente con email/password oppure invita/crea l'utente.
+3. Se usi la creazione manuale, assicurati che l'utente risulti confermato.
+4. Lascia le policy RLS `authenticated` sulle tabelle.
+5. Anonymous Sign-Ins può restare disattivato.
