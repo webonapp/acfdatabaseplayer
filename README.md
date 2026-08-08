@@ -163,3 +163,12 @@ Correzioni:
 - Se una card fallisce, le altre continuano.
 - In caso di errore viene mostrato anche il dettaglio tecnico della prima eccezione.
 - Sintassi JavaScript verificata con Node.
+
+
+## V23 - CARD_REGIONS fix
+- Corretto l'errore runtime `CARD_REGIONS is not defined`.
+- Ripristinate ESATTAMENTE le coordinate del lettore card della versione funzionante.
+- Nessuna modifica alle zone OCR o alla logica di lettura approvata.
+- Multi-card mantenuto.
+- Cache aggiornata a V23.
+- Sintassi JavaScript verificata prima dello ZIP.

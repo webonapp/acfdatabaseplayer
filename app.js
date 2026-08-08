@@ -288,6 +288,26 @@ window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)
     alert(err?.message||'ERRORE DURANTE IL SALVATAGGIO.');
   }
 };
+
+/*
+  CARD READER - ZONE FISSE DEL TEMPLATE
+  Coordinate calibrate sul template 2048×1149, espresse in proporzione.
+  NON MODIFICARE: sono le stesse zone della versione con lettura corretta.
+*/
+const CARD_REGIONS={
+  role:       {x:.381,y:.017,w:.259,h:.083,psm:'7',mode:'dark'},
+  first:      {x:.032,y:.366,w:.188,h:.048,psm:'7',mode:'white'},
+  last:       {x:.032,y:.405,w:.188,h:.057,psm:'7',mode:'white'},
+  team:       {x:.015,y:.457,w:.215,h:.052,psm:'7',mode:'white'},
+  number:     {x:.015,y:.513,w:.215,h:.209,psm:'7',mode:'white',digits:true},
+  flag:       {x:.065,y:.720,w:.145,h:.245},
+  height:     {x:.796,y:.061,w:.185,h:.165,psm:'6',mode:'dark',digits:true},
+  foot:       {x:.800,y:.313,w:.176,h:.209,psm:'6',mode:'blue'},
+  year:       {x:.781,y:.714,w:.205,h:.226,psm:'6',mode:'dark',digits:true},
+  strengths:  {x:.317,y:.566,w:.391,h:.244,psm:'6',mode:'green'},
+  weaknesses: {x:.305,y:.780,w:.430,h:.180,psm:'6',mode:'red'}
+};
+
 function loadImage(file){return new Promise((ok,ko)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=ko;im.src=URL.createObjectURL(file)})}
 function cropCanvas(img,r,scale=2.2){
  const sx=Math.round(img.naturalWidth*r.x),sy=Math.round(img.naturalHeight*r.y),sw=Math.round(img.naturalWidth*r.w),sh=Math.round(img.naturalHeight*r.h);
