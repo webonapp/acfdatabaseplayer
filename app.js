@@ -1,7 +1,30 @@
 const $=id=>document.getElementById(id);const cfg=window.APP_CONFIG||{};const configured=cfg.SUPABASE_URL&&!cfg.SUPABASE_URL.includes('INSERISCI_QUI')&&cfg.SUPABASE_PUBLISHABLE_KEY&&!cfg.SUPABASE_PUBLISHABLE_KEY.includes('INSERISCI_QUI');let db=configured?window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_PUBLISHABLE_KEY):null,teams=[],players=[],selectedFile=null;if(!configured)$('setupBanner').classList.remove('hidden');
+
+// Nazioni disponibili: bandiera emoji + nome. Nessun file esterno necessario.
+const COUNTRIES=[
+['AF','AFGHANISTAN'],['AL','ALBANIA'],['DZ','ALGERIA'],['AD','ANDORRA'],['AO','ANGOLA'],['AG','ANTIGUA E BARBUDA'],['SA','ARABIA SAUDITA'],['AR','ARGENTINA'],['AM','ARMENIA'],['AU','AUSTRALIA'],['AT','AUSTRIA'],['AZ','AZERBAIGIAN'],['BS','BAHAMAS'],['BH','BAHRAIN'],['BD','BANGLADESH'],['BB','BARBADOS'],['BE','BELGIO'],['BZ','BELIZE'],['BJ','BENIN'],['BT','BHUTAN'],['BY','BIELORUSSIA'],['BO','BOLIVIA'],['BA','BOSNIA ED ERZEGOVINA'],['BW','BOTSWANA'],['BR','BRASILE'],['BN','BRUNEI'],['BG','BULGARIA'],['BF','BURKINA FASO'],['BI','BURUNDI'],['KH','CAMBOGIA'],['CM','CAMERUN'],['CA','CANADA'],['CV','CAPO VERDE'],['TD','CIAD'],['CL','CILE'],['CN','CINA'],['CY','CIPRO'],['CO','COLOMBIA'],['KM','COMORE'],['CG','CONGO'],['CD','REPUBBLICA DEMOCRATICA DEL CONGO'],['KP','COREA DEL NORD'],['KR','COREA DEL SUD'],['CI','COSTA D’AVORIO'],['CR','COSTA RICA'],['HR','CROAZIA'],['CU','CUBA'],['DK','DANIMARCA'],['DM','DOMINICA'],['EC','ECUADOR'],['EG','EGITTO'],['SV','EL SALVADOR'],['AE','EMIRATI ARABI UNITI'],['ER','ERITREA'],['EE','ESTONIA'],['SZ','ESWATINI'],['ET','ETIOPIA'],['FJ','FIJI'],['PH','FILIPPINE'],['FI','FINLANDIA'],['FR','FRANCIA'],['GA','GABON'],['GM','GAMBIA'],['GE','GEORGIA'],['DE','GERMANIA'],['GH','GHANA'],['JM','GIAMAICA'],['JP','GIAPPONE'],['DJ','GIBUTI'],['JO','GIORDANIA'],['GR','GRECIA'],['GD','GRENADA'],['GT','GUATEMALA'],['GN','GUINEA'],['GW','GUINEA-BISSAU'],['GQ','GUINEA EQUATORIALE'],['GY','GUYANA'],['HT','HAITI'],['HN','HONDURAS'],['IN','INDIA'],['ID','INDONESIA'],['IR','IRAN'],['IQ','IRAQ'],['IE','IRLANDA'],['IS','ISLANDA'],['IL','ISRAELE'],['IT','ITALIA'],['KZ','KAZAKISTAN'],['KE','KENYA'],['KG','KIRGHIZISTAN'],['KI','KIRIBATI'],['KW','KUWAIT'],['LA','LAOS'],['LS','LESOTHO'],['LV','LETTONIA'],['LB','LIBANO'],['LR','LIBERIA'],['LY','LIBIA'],['LI','LIECHTENSTEIN'],['LT','LITUANIA'],['LU','LUSSEMBURGO'],['MK','MACEDONIA DEL NORD'],['MG','MADAGASCAR'],['MW','MALAWI'],['MY','MALESIA'],['MV','MALDIVE'],['ML','MALI'],['MT','MALTA'],['MA','MAROCCO'],['MH','ISOLE MARSHALL'],['MR','MAURITANIA'],['MU','MAURITIUS'],['MX','MESSICO'],['FM','MICRONESIA'],['MD','MOLDAVIA'],['MC','MONACO'],['MN','MONGOLIA'],['ME','MONTENEGRO'],['MZ','MOZAMBICO'],['MM','MYANMAR'],['NA','NAMIBIA'],['NR','NAURU'],['NP','NEPAL'],['NI','NICARAGUA'],['NE','NIGER'],['NG','NIGERIA'],['NO','NORVEGIA'],['NZ','NUOVA ZELANDA'],['OM','OMAN'],['NL','PAESI BASSI'],['PK','PAKISTAN'],['PW','PALAU'],['PS','PALESTINA'],['PA','PANAMA'],['PG','PAPUA NUOVA GUINEA'],['PY','PARAGUAY'],['PE','PERÙ'],['PL','POLONIA'],['PT','PORTOGALLO'],['QA','QATAR'],['GB','REGNO UNITO'],['CZ','REPUBBLICA CECA'],['CF','REPUBBLICA CENTRAFRICANA'],['DO','REPUBBLICA DOMINICANA'],['RO','ROMANIA'],['RW','RUANDA'],['RU','RUSSIA'],['KN','SAINT KITTS E NEVIS'],['LC','SAINT LUCIA'],['VC','SAINT VINCENT E GRENADINE'],['WS','SAMOA'],['SM','SAN MARINO'],['ST','SÃO TOMÉ E PRÍNCIPE'],['SN','SENEGAL'],['RS','SERBIA'],['SC','SEYCHELLES'],['SL','SIERRA LEONE'],['SG','SINGAPORE'],['SY','SIRIA'],['SK','SLOVACCHIA'],['SI','SLOVENIA'],['SB','ISOLE SALOMONE'],['SO','SOMALIA'],['ES','SPAGNA'],['LK','SRI LANKA'],['US','STATI UNITI'],['ZA','SUDAFRICA'],['SD','SUDAN'],['SS','SUD SUDAN'],['SR','SURINAME'],['SE','SVEZIA'],['CH','SVIZZERA'],['TJ','TAGIKISTAN'],['TW','TAIWAN'],['TZ','TANZANIA'],['TH','THAILANDIA'],['TL','TIMOR EST'],['TG','TOGO'],['TO','TONGA'],['TT','TRINIDAD E TOBAGO'],['TN','TUNISIA'],['TR','TURCHIA'],['TM','TURKMENISTAN'],['TV','TUVALU'],['UA','UCRAINA'],['UG','UGANDA'],['HU','UNGHERIA'],['UY','URUGUAY'],['UZ','UZBEKISTAN'],['VU','VANUATU'],['VA','CITTÀ DEL VATICANO'],['VE','VENEZUELA'],['VN','VIETNAM'],['YE','YEMEN'],['ZM','ZAMBIA'],['ZW','ZIMBABWE'],
+// Selezioni calcistiche utili
+['GB-ENG','INGHILTERRA'],['GB-SCT','SCOZIA'],['GB-WLS','GALLES'],['GB-NIR','IRLANDA DEL NORD'],['XK','KOSOVO']
+];
+const COUNTRY_FLAG_OVERRIDES={'GB-ENG':'🏴','GB-SCT':'🏴','GB-WLS':'🏴','GB-NIR':'🇬🇧','XK':'🇽🇰'};
+function flagEmoji(code){if(COUNTRY_FLAG_OVERRIDES[code])return COUNTRY_FLAG_OVERRIDES[code];return code.replace(/./g,c=>String.fromCodePoint(127397+c.charCodeAt()))}
+function countryLabel(name){const c=COUNTRIES.find(x=>x[1]===name);return c?`${flagEmoji(c[0])} ${c[1]}`:name}
+function countryOptions(includeAll=false){return (includeAll?'<option value="">Tutte</option>':'<option value="">SELEZIONA NAZIONALITÀ</option>')+COUNTRIES.slice().sort((a,b)=>a[1].localeCompare(b[1],'it')).map(([code,name])=>`<option value="${name}">${flagEmoji(code)} ${name}</option>`).join('')}
+function populateCountrySelects(){
+ if($('fNation')){const v=$('fNation').value;$('fNation').innerHTML=countryOptions(true);$('fNation').value=v}
+ if($('iNationality')){const v=$('iNationality').value;$('iNationality').innerHTML=countryOptions(false);$('iNationality').value=v}
+ if($('nationality')){const v=$('nationality').value;$('nationality').innerHTML=countryOptions(false);$('nationality').value=v}
+}
+
 function age(y){if(!y)return'';const d=new Date(),b=new Date(d.getFullYear(),2,1);return d.getFullYear()-Number(y)-(d<b?1:0)}function tags(v){return Array.isArray(v)?v:[]}function norm(v){return String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()}function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}function initials(p){return`${(p.first_name||'')[0]||''}${(p.last_name||'')[0]||''}`}
 async function loadAll(){if(!db)return;const{data:t,error:te}=await db.from('teams').select('*').order('name');if(te)throw te;teams=t||[];const{data:p,error:pe}=await db.from('players').select('*, teams(name)').order('updated_at',{ascending:false});if(pe)throw pe;players=p||[];populateFilters();renderDashboard();renderPlayersPage();renderTeamsPage();renderStats()}
-function preserve(id,a,l){const e=$(id),v=e.value;e.innerHTML=`<option value="">${l}</option>`+a.map(x=>`<option>${esc(x)}</option>`).join('');e.value=v}function populateFilters(){$('fTeam').innerHTML='<option value="">Tutte</option>'+teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');$('teamId').innerHTML=teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');preserve('fNation',[...new Set(players.map(p=>p.nationality).filter(Boolean))].sort(),'Tutte');preserve('fYear',[...new Set(players.map(p=>p.birth_year).filter(Boolean))].sort((a,b)=>b-a),'Tutti')}
+function preserve(id,a,l){const e=$(id),v=e.value;e.innerHTML=`<option value="">${l}</option>`+a.map(x=>`<option>${esc(x)}</option>`).join('');e.value=v}
+function populateFilters(){
+ $('fTeam').innerHTML='<option value="">Tutte</option>'+teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
+ $('teamId').innerHTML=teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
+ populateCountrySelects();
+ preserve('fYear',[...new Set(players.map(p=>p.birth_year).filter(Boolean))].sort((a,b)=>b-a),'Tutti');
+}
 function matches(p){const q=norm($('q').value),team=$('fTeam').value,role=$('fRole').value,foot=$('fFoot').value,n=$('fNation').value,y=$('fYear').value,hay=norm([p.first_name,p.last_name,p.teams?.name,p.role,p.position,p.foot,p.birth_year,p.nationality,...tags(p.strengths),...tags(p.weaknesses),p.notes].join(' '));return(!q||hay.includes(q))&&(!team||String(p.team_id)===team)&&(!role||norm(p.role)===norm(role))&&(!foot||p.foot===foot)&&(!n||p.nationality===n)&&(!y||String(p.birth_year)===y)}
 function row(p){return`<tr><td><div class="playercell"><div class="pface">${esc(initials(p))}</div><span class="num">${p.number??'-'}</span><span class="playername">${esc(p.first_name)} ${esc(p.last_name)}</span></div></td><td class="teamtxt">${esc(p.teams?.name||'-')}</td><td>${esc(p.role||'-')}</td><td>${p.birth_year||'-'}</td><td>${esc(p.foot||'-')}</td><td>${age(p.birth_year)}</td><td>${esc(p.nationality||'-')}</td><td><button class="action-btn" onclick="editPlayer('${p.id}')">MODIFICA</button></td></tr>`}
 function renderDashboard(){$('totalPlayers').textContent=players.length;$('totalTeams').textContent=teams.length;$('totalNations').textContent=new Set(players.map(p=>p.nationality).filter(Boolean)).size;$('totalAnalysis').textContent=players.length;const c={};players.forEach(p=>c[p.team_id]=(c[p.team_id]||0)+1);$('tbody').innerHTML=players.filter(matches).slice(0,12).map(row).join('')||'<tr><td colspan="8" style="text-align:center;padding:28px;color:#777">Nessun giocatore trovato</td></tr>'}
@@ -10,7 +33,7 @@ function renderPlayersPage(){$('playerGrid').innerHTML=sortedPlayers().map(p=>`<
 function renderTeamsPage(){const c={};players.forEach(p=>c[p.team_id]=(c[p.team_id]||0)+1);$('teamsGrid').innerHTML=teams.map(t=>`<article class="team-card"><h3>${esc(t.name)}</h3><p>${esc(t.country||'')} ${t.competition?'· '+esc(t.competition):''}</p><div class="bigstat">${c[t.id]||0}</div><p>giocatori archiviati</p><button class="secondary" onclick="openTeamPlayers('${t.id}')">VEDI GIOCATORI</button></article>`).join('')}
 function renderStats(){const r={DIFENSORE:0,CENTROCAMPISTA:0,ATTACCANTE:0};players.forEach(p=>{const x=String(p.role||'').toUpperCase();if(x in r)r[x]++});$('statsGrid').innerHTML=[['GIOCATORI',players.length],['SQUADRE',teams.length],['NAZIONALITÀ',new Set(players.map(p=>p.nationality).filter(Boolean)).size],['DIFENSORI',r.DIFENSORE],['CENTROCAMPISTI',r.CENTROCAMPISTA],['ATTACCANTI',r.ATTACCANTE]].map(([l,v])=>`<div class="stat-card"><h3>${l}</h3><div class="bigstat">${v}</div></div>`).join('')}
 function showView(n){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+n)?.classList.add('active');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===n));if(n==='players')renderPlayersPage();if(n==='teams')renderTeamsPage();if(n==='stats')renderStats();$('sidebar').classList.remove('mobile-open');scrollTo({top:0,behavior:'smooth'})}document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showView(b.dataset.go));['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).addEventListener(id==='q'?'input':'change',renderDashboard));$('searchBtn').onclick=renderDashboard;$('filterBtn').onclick=renderDashboard;$('resetBtn').onclick=()=>{['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).value='');renderDashboard()};$('playersSearch').oninput=renderPlayersPage;$('playerSort').onchange=renderPlayersPage;
-function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));['importCardBtn','playersImportBtn','settingsImportBtn','dashboardImportBtn'].forEach(id=>$(id).onclick=()=>{resetImport();openModal('importModal')});$('manualTeamBtn').onclick=()=>openModal('teamModal');
+function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));['importCardBtn','playersImportBtn','settingsImportBtn'].forEach(id=>$(id).onclick=()=>{resetImport();openModal('importModal')});$('manualTeamBtn').onclick=()=>openModal('teamModal');
 $('teamForm').onsubmit=async e=>{e.preventDefault();if(!db)return;const{error}=await db.from('teams').insert({name:$('teamName').value.trim(),country:$('teamCountry').value.trim(),competition:$('teamCompetition').value.trim()});if(error)return alert(error.message);$('teamForm').reset();closeModal('teamModal');await loadAll()};
 function normalizeRole(v){const n=norm(v);if(n.includes('dif')||n.includes('terz')||n.includes('bracc'))return'DIFENSORE';if(n.includes('centr')||n.includes('mezz')||n.includes('med')||n.includes('trequart'))return'CENTROCAMPISTA';return'ATTACCANTE'}
 window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamId').value=p.team_id||'';$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=p.foot==='SX'?'SX':'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=p.nationality||'';$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{e.preventDefault();const p={first_name:$('firstName').value.trim(),last_name:$('lastName').value.trim(),team_id:$('teamId').value,number:$('number').value?+$('number').value:null,role:$('role').value,position:$('position').value.trim(),height:$('height').value?+$('height').value:null,foot:$('foot').value,birth_year:$('birthYear').value?+$('birthYear').value:null,nationality:$('nationality').value.trim(),strengths:$('strengths').value.split(',').map(x=>x.trim()).filter(Boolean),weaknesses:$('weaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),notes:$('notes').value.trim(),updated_at:new Date().toISOString()};const{error}=await db.from('players').update(p).eq('id',$('playerId').value);if(error)return alert(error.message);closeModal('playerModal');await loadAll()};window.deletePlayer=async id=>{if(!confirm('Eliminare questo giocatore?'))return;const{error}=await db.from('players').delete().eq('id',id);if(error)return alert(error.message);await loadAll()};window.openTeamPlayers=id=>{showView('players');const t=teams.find(x=>String(x.id)===String(id));if(t)$('playersSearch').value=t.name;renderPlayersPage()};
@@ -28,73 +51,89 @@ function resetImport(){selectedFile=null;$('cardFile').value='';$('cardPreview')
 $('restartImportBtn').onclick=()=>{$('importReview').classList.add('hidden');$('uploadStage').classList.remove('hidden')};
 $('processCardBtn').onclick=processCard;
 
+async function importDashboardFile(file){
+ if(!file||!file.type.startsWith('image/'))return;
+ resetImport();openModal('importModal');selectFile(file);
+ // Salta upload + click su elabora: parte subito.
+ await new Promise(r=>setTimeout(r,80));processCard();
+}
+const dashboardDrop=$('dashboardImportBtn');
+dashboardDrop.addEventListener('dragenter',e=>{e.preventDefault();dashboardDrop.classList.add('drag-active')});
+dashboardDrop.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';dashboardDrop.classList.add('drag-active')});
+dashboardDrop.addEventListener('dragleave',()=>dashboardDrop.classList.remove('drag-active'));
+dashboardDrop.addEventListener('drop',e=>{e.preventDefault();dashboardDrop.classList.remove('drag-active');importDashboardFile(e.dataTransfer.files?.[0])});
+dashboardDrop.addEventListener('click',()=>{const input=document.createElement('input');input.type='file';input.accept='image/*';input.onchange=()=>importDashboardFile(input.files?.[0]);input.click()});
+
+
 /*
   CARD READER V3
   La card ha un layout fisso. Non proviamo più a capire il testo come una frase intera:
   leggiamo ogni area separatamente, esattamente dove il dato è stampato.
 */
 const CARD_REGIONS={
- role:       {x:.31,y:.018,w:.42,h:.075,psm:'7'},
- first:      {x:.045,y:.350,w:.205,h:.042,psm:'7'},
- last:       {x:.045,y:.392,w:.205,h:.052,psm:'7'},
- team:       {x:.020,y:.438,w:.235,h:.050,psm:'7'},
- number:     {x:.035,y:.500,w:.205,h:.175,psm:'7',digits:true},
- flag:       {x:.070,y:.745,w:.115,h:.150},
- height:     {x:.800,y:.095,w:.175,h:.100,psm:'7',digits:true},
- foot:       {x:.825,y:.380,w:.135,h:.100,psm:'7'},
- year:       {x:.800,y:.800,w:.170,h:.110,psm:'7',digits:true},
- strengths:  {x:.320,y:.650,w:.405,h:.155,psm:'6'},
- weaknesses: {x:.305,y:.842,w:.425,h:.105,psm:'6'}
+ // Coordinate calibrate sul template 2048×1149, espresse in proporzione.
+ role:       {x:.381,y:.017,w:.259,h:.083,psm:'7',mode:'dark'},
+ first:      {x:.032,y:.366,w:.188,h:.048,psm:'7',mode:'white'},
+ last:       {x:.032,y:.405,w:.188,h:.057,psm:'7',mode:'white'},
+ team:       {x:.015,y:.457,w:.215,h:.052,psm:'7',mode:'white'},
+ number:     {x:.015,y:.513,w:.215,h:.209,psm:'7',mode:'white',digits:true},
+ flag:       {x:.065,y:.720,w:.145,h:.245},
+ height:     {x:.796,y:.061,w:.185,h:.165,psm:'6',mode:'dark',digits:true},
+ foot:       {x:.800,y:.313,w:.176,h:.209,psm:'6',mode:'blue'},
+ year:       {x:.781,y:.714,w:.205,h:.226,psm:'6',mode:'dark',digits:true},
+ strengths:  {x:.317,y:.566,w:.391,h:.244,psm:'6',mode:'green'},
+ weaknesses: {x:.305,y:.780,w:.430,h:.180,psm:'6',mode:'red'}
 };
 function loadImage(file){return new Promise((ok,ko)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=ko;im.src=URL.createObjectURL(file)})}
-function cropCanvas(img,r,scale=2.4){
+function cropCanvas(img,r,scale=2.2){
  const sx=Math.round(img.naturalWidth*r.x),sy=Math.round(img.naturalHeight*r.y),sw=Math.round(img.naturalWidth*r.w),sh=Math.round(img.naturalHeight*r.h);
  const c=document.createElement('canvas');c.width=Math.max(1,Math.round(sw*scale));c.height=Math.max(1,Math.round(sh*scale));
  const ctx=c.getContext('2d',{willReadFrequently:true});ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
- // Aumenta il contrasto senza cambiare la geometria dei caratteri.
- const d=ctx.getImageData(0,0,c.width,c.height),a=d.data;
- for(let i=0;i<a.length;i+=4){const y=.299*a[i]+.587*a[i+1]+.114*a[i+2];let v=(y-128)*1.55+128;v=Math.max(0,Math.min(255,v));a[i]=a[i+1]=a[i+2]=v}
- ctx.putImageData(d,0,0);return c;
+ // Nessuna interpretazione linguistica. Isoliamo solo il colore tipografico atteso nella zona.
+ const im=ctx.getImageData(0,0,c.width,c.height),a=im.data,mode=r.mode||'dark';
+ for(let i=0;i<a.length;i+=4){
+   const R=a[i],G=a[i+1],B=a[i+2];let ink=false;
+   if(mode==='white') ink=R>185&&G>185&&B>185;
+   else if(mode==='green') ink=G>115&&G>R*1.12&&G>B*1.04;
+   else if(mode==='red') ink=R>145&&R>G*1.18&&R>B*1.12;
+   else if(mode==='blue') ink=B>120&&B>R*1.10&&B>G*1.02;
+   else ink=(R+G+B)/3<155;
+   const v=ink?0:255;a[i]=a[i+1]=a[i+2]=v;a[i+3]=255;
+ }
+ ctx.putImageData(im,0,0);return c;
 }
-function cleanLine(t){return String(t||'').replace(/[\r\n]+/g,' ').replace(/[|]/g,'I').replace(/\s+/g,' ').trim().replace(/^[^A-Za-zÀ-ÿ0-9]+|[^A-Za-zÀ-ÿ0-9)('’\-\. ]+$/g,'')}
-function cleanLetters(t){return cleanLine(t).replace(/[^A-Za-zÀ-ÿ0-9'’\-\. ]/g,'').replace(/\s+/g,' ').trim()}
-function cleanFieldText(t){const raw=cleanLetters(t).toUpperCase();const toks=raw.split(/\s+/).filter(Boolean);const filtered=toks.filter((tok,i)=>tok.length>1||toks.length===1);return filtered.join(' ').replace(/\s+/g,' ').trim()}
+function cleanLine(t){return String(t||'').replace(/[\r\n]+/g,' ').replace(/[|]/g,'I').replace(/\s+/g,' ').trim()}
+function cleanFieldText(t){
+ let x=cleanLine(t).toUpperCase().replace(/[^A-ZÀ-ÖØ-Ý0-9'’\-\. ]/g,' ').replace(/\s+/g,' ').trim();
+ // Scarta esclusivamente frammenti isolati generati dal bordo, senza correggere parole.
+ const parts=x.split(' ').filter(Boolean);while(parts.length>1&&parts.at(-1).length===1)parts.pop();while(parts.length>1&&parts[0].length===1)parts.shift();return parts.join(' ');
+}
 function cleanDigits(t){const m=String(t||'').match(/\d+/g);return m?m.join(''):''}
-function cleanMulti(t){return String(t||'').split(/\n+/).map(cleanLetters).filter(x=>x.length>1&&!/^I$/.test(x)).join('\n')}
-function normalizeCardRole(t){const n=norm(t);if(n.includes('difensor'))return'DIFENSORE';if(n.includes('centrocamp'))return'CENTROCAMPISTA';if(n.includes('attacc'))return'ATTACCANTE';return cleanLetters(t).toUpperCase()||'ATTACCANTE'}
+function cleanMulti(t){return String(t||'').split(/\n+/).map(cleanFieldText).filter(x=>x.length>2).join('\n')}
+function normalizeCardRole(t){const n=cleanFieldText(t);if(n.includes('DIFENS'))return'DIFENSORE';if(n.includes('CENTRO'))return'CENTROCAMPISTA';if(n.includes('ATTACC'))return'ATTACCANTE';return'ATTACCANTE'}
 async function readRegion(worker,img,key){
- const r=CARD_REGIONS[key],c=cropCanvas(img,r,key==='number'?3:2.4);
- const params={tessedit_pageseg_mode:r.psm||'7',preserve_interword_spaces:'1',user_defined_dpi:'300'};if(['first','last','team','role','foot'].includes(key))params.tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÀÈÉÌÒÓÙÑÇ -'";else if(r.digits)params.tessedit_char_whitelist='0123456789';else params.tessedit_char_whitelist='';await worker.setParameters(params);
- const {data}=await worker.recognize(c);return data.text||'';
+ const r=CARD_REGIONS[key],c=cropCanvas(img,r,key==='number'?2.7:2.2);
+ const params={tessedit_pageseg_mode:r.psm||'7',preserve_interword_spaces:'1',user_defined_dpi:'300',load_system_dawg:'0',load_freq_dawg:'0'};
+ if(['first','last','team','role'].includes(key))params.tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇ -'";
+ else if(key==='foot')params.tessedit_char_whitelist='DXSX';
+ else if(r.digits)params.tessedit_char_whitelist='0123456789';
+ else params.tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇ 0123456789,'";
+ await worker.setParameters(params);const{data}=await worker.recognize(c);return data.text||'';
 }
 function detectFlagNationality(img){
  const r=CARD_REGIONS.flag,sx=Math.round(img.naturalWidth*r.x),sy=Math.round(img.naturalHeight*r.y),sw=Math.round(img.naturalWidth*r.w),sh=Math.round(img.naturalHeight*r.h);
- const c=document.createElement('canvas');c.width=160;c.height=160;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,sx,sy,sw,sh,0,0,160,160);const d=x.getImageData(0,0,160,160).data;
- const cls=(R,G,B)=>{if(R>190&&G>190&&B>190)return'W';if(R>120&&R>G*1.25&&R>B*1.25)return'R';if(B>95&&B>R*1.12&&B>G*1.05)return'B';if(G>85&&G>R*1.1&&G>B*1.02)return'G';if(R>140&&G>110&&B<90)return'Y';if(R<85&&G<85&&B<85)return'K';return'N'};
- const grid=Array.from({length:7},()=>Array(7).fill('N'));
- for(let gy=0;gy<7;gy++)for(let gx=0;gx<7;gx++){let cnt={R:0,W:0,B:0,G:0,Y:0,K:0,N:0};for(let yy=Math.floor((gy+.18)*160/7);yy<Math.floor((gy+.82)*160/7);yy+=2)for(let xx=Math.floor((gx+.18)*160/7);xx<Math.floor((gx+.82)*160/7);xx+=2){const i=(yy*160+xx)*4;cnt[cls(d[i],d[i+1],d[i+2])]++}grid[gy][gx]=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0][0]}
- const count=k=>grid.flat().filter(v=>v===k).length, row=(y,k)=>grid[y].filter(v=>v===k).length, col=(z,k)=>grid.map(r=>r[z]).filter(v=>v===k).length;
- const R=count('R'),W=count('W'),B=count('B'),G=count('G'),Y=count('Y'),K=count('K');
- // Croce nordica bianca su rosso: Danimarca. La barra verticale è spostata leggermente a sinistra.
- if(R>=10&&W>=4&&Math.max(col(2,'W'),col(3,'W'))>=4&&Math.max(row(3,'W'),row(4,'W'))>=4)return'DANIMARCA';
- // Croce rossa su bianco: Inghilterra.
- if(W>=12&&R>=4&&Math.max(col(3,'R'),col(4,'R'))>=4&&Math.max(row(3,'R'),row(4,'R'))>=4)return'INGHILTERRA';
- // Tricolori verticali.
- const left=grid.flatMap((r,i)=>r.slice(0,2)),mid=grid.flatMap(r=>r.slice(2,5)),right=grid.flatMap(r=>r.slice(5,7));
- const n=(a,k)=>a.filter(v=>v===k).length;
- if(n(left,'G')>=4&&n(mid,'W')>=5&&n(right,'R')>=4)return'ITALIA';
- if(n(left,'B')>=4&&n(mid,'W')>=5&&n(right,'R')>=4)return'FRANCIA';
- if(n(left,'K')>=3&&n(mid,'Y')>=4&&n(right,'R')>=4)return'BELGIO';
- // Tricolori orizzontali.
- const top=grid.slice(0,2).flat(),middle=grid.slice(2,5).flat(),bottom=grid.slice(5,7).flat();
- if(n(top,'R')>=5&&n(middle,'W')>=6&&n(bottom,'B')>=5)return'PAESI BASSI';
- if(n(top,'K')>=4&&n(middle,'R')>=5&&n(bottom,'Y')>=5)return'GERMANIA';
- if(n(top,'R')>=5&&n(middle,'Y')>=7&&n(bottom,'R')>=5)return'SPAGNA';
- if(n(top,'B')>=5&&n(middle,'W')>=6&&n(bottom,'R')>=5)return'RUSSIA';
- if(B>=7&&W>=7&&R>=3)return'CROAZIA';
- if(G>=9&&Y>=3&&B>=2)return'BRASILE';
- if(B>=8&&W>=7&&R<=3)return'ARGENTINA';
- return'';
+ const c=document.createElement('canvas');c.width=180;c.height=180;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,sx,sy,sw,sh,0,0,180,180);const d=x.getImageData(0,0,180,180).data;
+ const pix=(xx,yy)=>{const i=(yy*180+xx)*4;return[d[i],d[i+1],d[i+2]]};
+ const red=([R,G,B])=>R>145&&R>G*1.25&&R>B*1.25, white=([R,G,B])=>R>190&&G>190&&B>190, blue=([R,G,B])=>B>100&&B>R*1.15;
+ // Danimarca: cerchiamo il pattern croce bianca su campo rosso nel nucleo del simbolo, ignorando sfondo e bordo circolare.
+ let coreR=0,coreW=0,n=0;for(let yy=28;yy<152;yy+=3)for(let xx=28;xx<152;xx+=3){const p=pix(xx,yy);if(red(p))coreR++;if(white(p))coreW++;n++}
+ let hW=0,hN=0,vW=0,vN=0;
+ for(let yy=76;yy<104;yy+=2)for(let xx=32;xx<148;xx+=2){hN++;if(white(pix(xx,yy)))hW++}
+ for(let yy=32;yy<148;yy+=2)for(let xx=65;xx<91;xx+=2){vN++;if(white(pix(xx,yy)))vW++}
+ if(coreR/n>.13&&coreW/n>.05&&hW/hN>.15&&vW/vN>.12)return'DANIMARCA';
+ // Fallback molto prudente per alcuni pattern semplici.
+ let R=0,W=0,B=0,G=0,Y=0,K=0,T=0;for(let yy=25;yy<155;yy+=4)for(let xx=25;xx<155;xx+=4){const [a,b,z]=pix(xx,yy);T++;if(a>145&&a>b*1.25&&a>z*1.25)R++;else if(a>195&&b>195&&z>195)W++;else if(z>110&&z>a*1.15)B++;else if(b>100&&b>a*1.08&&b>z*1.05)G++;else if(a>150&&b>120&&z<95)Y++;else if(a<65&&b<65&&z<65)K++}
+ if(G/T>.12&&W/T>.08&&R/T>.08)return'ITALIA';if(B/T>.10&&W/T>.10&&R/T>.08)return'FRANCIA';if(K/T>.07&&R/T>.10&&Y/T>.07)return'GERMANIA';if(R/T>.18&&Y/T>.06)return'SPAGNA';return'';
 }
 async function processCard(){
  if(!selectedFile)return;
@@ -187,4 +226,4 @@ async function archiveImportedPlayer(){
  }catch(err){console.error(err);alert(err.message||'Errore durante l’archiviazione.');}
  finally{btn.disabled=false;btn.textContent=old;}
 }
-$('importReview').onsubmit=async e=>{e.preventDefault();e.stopPropagation();await archiveImportedPlayer()};loadAll().catch(e=>{console.error(e);alert(e.message)});
+$('importReview').onsubmit=async e=>{e.preventDefault();e.stopPropagation();await archiveImportedPlayer()};populateCountrySelects();loadAll().catch(e=>{console.error(e);alert(e.message)});

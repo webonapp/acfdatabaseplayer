@@ -17,3 +17,9 @@ Modifiche V2:
 - I dati riconosciuti vengono mostrati per controllo prima dell'archiviazione.
 
 Per aggiornare GitHub Pages, sostituisci i file del repository con quelli di questa cartella e fai Commit.
+
+
+## V8
+- OCR ricalibrato per il template fisso: zone precise e segmentazione per colore, senza correzione linguistica.
+- Drag & drop diretto nella dashboard: apre il controllo dati e avvia automaticamente la lettura.
+- Menu nazionalità completo con bandiere emoji, senza file esterno.
