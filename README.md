@@ -109,3 +109,13 @@ In Authentication:
 - Il service worker elimina le vecchie cache durante l'aggiornamento.
 - Aggiunta segnalazione visibile degli errori JavaScript nella schermata login.
 - Sintassi app.js verificata con Node prima di generare il pacchetto.
+
+
+## V19 - Import click fix
+- Corretto il click su IMPORTA CARD nel menu sinistro.
+- Corretto il click sul riquadro Importa Card della Dashboard.
+- Aggiunto pulsante SCEGLI FILE nel riquadro Dashboard.
+- Il drag & drop continua a funzionare.
+- Il selettore supporta più file.
+- Cache busting aggiornato a v19.
+- Sintassi JavaScript verificata prima dello ZIP.

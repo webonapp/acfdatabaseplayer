@@ -181,3 +181,9 @@ body.auth-locked{overflow:hidden}
 .danger-btn{border:1px solid #e7b9b9;background:#fff4f4;color:#a52d2d;border-radius:9px;padding:11px 14px;font-weight:800}
 .danger-btn:hover{background:#ffe8e8}
 #teamName,#teamCountry,#teamCompetition{text-transform:uppercase}
+
+
+/* ===== V19: IMPORT CLICK FIX ===== */
+#dashboardDrop{cursor:pointer}
+#dashboardDrop:focus{outline:2px solid #6d3aa1;outline-offset:3px}
+.dashboard-choose-btn{margin-top:12px;width:auto}

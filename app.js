@@ -264,6 +264,100 @@ function renderStats(){
 }
 
 function showView(n){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+n)?.classList.add('active');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===n));if(n==='players')renderPlayersPage();if(n==='teams')renderTeamsPage();if(n==='stats')renderStats();$('sidebar').classList.remove('mobile-open');scrollTo({top:0,behavior:'smooth'})}document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showView(b.dataset.go));['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).addEventListener(id==='q'?'input':'change',renderDashboard));$('searchBtn').onclick=renderDashboard;$('filterBtn').onclick=renderDashboard;$('resetBtn').onclick=()=>{['q','fTeam','fRole','fFoot','fNation','fYear'].forEach(id=>$(id).value='');renderDashboard()};$('playersSearch').oninput=renderPlayersPage;$('playerSort').onchange=renderPlayersPage;
+
+function openImportPicker(){
+  resetImport();
+  openModal('importModal');
+  const input=$('cardFile');
+  if(input){
+    input.value='';
+    setTimeout(()=>input.click(),60);
+  }
+}
+
+function openImportModalOnly(){
+  resetImport();
+  openModal('importModal');
+}
+
+function bindImportClickControls(){
+  const sidebarBtn=$('importCardBtn');
+  if(sidebarBtn){
+    sidebarBtn.type='button';
+    sidebarBtn.onclick=e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      openImportPicker();
+    };
+  }
+
+  const dash=$('dashboardDrop');
+  if(dash){
+    dash.setAttribute('role','button');
+    dash.setAttribute('tabindex','0');
+    dash.onclick=e=>{
+      if(e.target?.closest?.('#dashboardChooseFileBtn'))return;
+      e.preventDefault();
+      e.stopPropagation();
+      openImportPicker();
+    };
+    dash.onkeydown=e=>{
+      if(e.key==='Enter'||e.key===' '){
+        e.preventDefault();
+        openImportPicker();
+      }
+    };
+  }
+
+  const choose=$('dashboardChooseFileBtn');
+  if(choose){
+    choose.type='button';
+    choose.onclick=e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      openImportPicker();
+    };
+  }
+}
+
+
+const cardFileInput=$('cardFile');
+if(cardFileInput){
+  cardFileInput.addEventListener('change',e=>{
+    const files=Array.from(e.target.files||[]);
+    if(!files.length)return;
+    selectFiles(files);
+  });
+}
+
+
+function bindDashboardDrop(){
+  const dash=$('dashboardDrop');
+  if(!dash)return;
+
+  dash.addEventListener('dragover',e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    dash.classList.add('drag');
+  });
+
+  dash.addEventListener('dragleave',e=>{
+    e.preventDefault();
+    dash.classList.remove('drag');
+  });
+
+  dash.addEventListener('drop',e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    dash.classList.remove('drag');
+    const files=Array.from(e.dataTransfer?.files||[]);
+    if(!files.length)return;
+    resetImport();
+    openModal('importModal');
+    selectFiles(files);
+  });
+}
+
 function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));['importCardBtn','playersImportBtn','settingsImportBtn'].forEach(id=>$(id).onclick=()=>{resetImport();openModal('importModal')});$('manualTeamBtn').onclick=()=>openNewTeamModal();
 $('teamForm').onsubmit=async e=>{e.preventDefault();if(!db)return alert('SUPABASE NON CONFIGURATO.');try{await ensureWriteSession();const id=$('teamEditId').value;const payload={name:upper($('teamName').value),country:upper($('teamCountry').value),competition:upper($('teamCompetition').value)};if(!payload.name)throw new Error('IL NOME DELLA SQUADRA È OBBLIGATORIO.');const duplicate=teams.find(t=>norm(t.name)===norm(payload.name)&&String(t.id)!==String(id||''));if(duplicate)throw new Error('ESISTE GIÀ UNA SQUADRA CON QUESTO NOME.');if(id){const{error}=await db.from('teams').update(payload).eq('id',id);if(error)throw error}else{const{error}=await db.from('teams').insert(payload);if(error)throw error}$('teamForm').reset();$('teamEditId').value='';closeModal('teamModal');await loadAll();showView('teams')}catch(err){console.error(err);alert(err?.message||'ERRORE DURANTE IL SALVATAGGIO DELLA SQUADRA.')}};
 function normalizeRole(v){const n=norm(v);if(n.includes('dif')||n.includes('terz')||n.includes('bracc'))return'DIFENSORE';if(n.includes('centr')||n.includes('mezz')||n.includes('med')||n.includes('trequart'))return'CENTROCAMPISTA';return'ATTACCANTE'}
@@ -586,4 +680,7 @@ window.addEventListener('unhandledrejection',e=>{
 });
 
 $('logoutBtn')?.addEventListener('click',logout);
+
+bindImportClickControls();
+bindDashboardDrop();
 initializeAuth().catch(e=>{console.error(e);showLogin(e.message)});
