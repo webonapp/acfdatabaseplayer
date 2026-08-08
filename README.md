@@ -238,3 +238,22 @@ Fix:
 - Migliorati anche Francia, Italia, Belgio, Paesi Bassi, Argentina, Spagna, Danimarca, Inghilterra e Brasile.
 - Il campo nazionalità viene aggiornato esplicitamente insieme alla preview della bandiera.
 - Il template storico rimane invariato.
+
+
+## V29 - Fix definitivo lettura PIEDE
+
+Analisi delle card reali fornite:
+- Nelle card bianche il valore DX è colorato in BLU.
+- Nelle card bianche il valore SX è colorato in GIALLO/ORO.
+- Nelle card gialle il piede dominante è indicato dall'impronta BLU.
+
+Modifiche:
+- Le card bianche non usano più l'OCR come metodo principale per il piede.
+- Il software conta direttamente i pixel BLU e GIALLO nella zona PIEDE:
+  - giallo dominante = SX
+  - blu dominante = DX
+- Testato sulle card fornite di Carreras e Güler: entrambe SX hanno una forte presenza gialla e nessun blu.
+- Verificato anche sul template Jensen DX: presenza blu forte e nessun giallo.
+- L'OCR resta solo come fallback.
+- Rimossi tutti i default automatici che trasformavano un valore non letto in DX.
+- Se il piede non è riconoscibile con sicurezza, resta vuoto invece di essere classificato erroneamente.

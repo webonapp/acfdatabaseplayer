@@ -290,7 +290,7 @@ function normalizeRole(v){const n=norm(v);if(n.includes('dif')||n.includes('terz
 function openNewTeamModal(){$('teamForm').reset();$('teamEditId').value='';$('teamModalTitle').textContent='NUOVA SQUADRA';openModal('teamModal')}
 window.editTeam=id=>{const t=teams.find(x=>String(x.id)===String(id));if(!t)return;$('teamEditId').value=t.id;$('teamModalTitle').textContent='MODIFICA SQUADRA';$('teamName').value=upper(t.name||'');$('teamCountry').value=upper(t.country||'');$('teamCompetition').value=upper(t.competition||'');openModal('teamModal')};
 window.deleteTeam=async id=>{const t=teams.find(x=>String(x.id)===String(id));if(!t)return;const linked=players.filter(p=>String(p.team_id)===String(id));let msg=`ELIMINARE DEFINITIVAMENTE LA SQUADRA "${t.name}"?`;if(linked.length)msg+=`\n\nATTENZIONE: CI SONO ${linked.length} GIOCATORI ASSOCIATI.\nELIMINANDO LA SQUADRA VERRANNO ELIMINATI ANCHE TUTTI I GIOCATORI DELLA SQUADRA.`;if(!confirm(msg))return;try{await ensureWriteSession();if(linked.length){const{error:e1}=await db.from('players').delete().eq('team_id',id);if(e1)throw new Error('ERRORE ELIMINAZIONE GIOCATORI: '+e1.message)}const{error:e2}=await db.from('teams').delete().eq('id',id);if(e2)throw new Error('ERRORE ELIMINAZIONE SQUADRA: '+e2.message);await loadAll();showView('teams')}catch(err){console.error(err);alert(err?.message||'ERRORE DURANTE L’ELIMINAZIONE DELLA SQUADRA.')}};
-window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamNameEdit').value=upper(p.teams?.name||'');$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=p.foot==='SX'?'SX':'DX';$('birthYear').value=p.birth_year??'';$('nationality').value=sanitizeNationalityInput(p.nationality||'');$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{
+window.editPlayer=id=>{const p=players.find(x=>String(x.id)===String(id));if(!p)return;$('playerId').value=p.id;$('firstName').value=p.first_name||'';$('lastName').value=p.last_name||'';$('teamNameEdit').value=upper(p.teams?.name||'');$('number').value=p.number??'';$('role').value=normalizeRole(p.role);$('position').value=p.position||'';$('height').value=p.height??'';$('foot').value=(p.foot==='SX'||p.foot==='DX')?p.foot:'';$('birthYear').value=p.birth_year??'';$('nationality').value=sanitizeNationalityInput(p.nationality||'');$('strengths').value=tags(p.strengths).join(', ');$('weaknesses').value=tags(p.weaknesses).join(', ');$('notes').value=p.notes||'';openModal('playerModal')};$('playerForm').onsubmit=async e=>{
   e.preventDefault();
   if(!db)return alert('SUPABASE NON CONFIGURATO.');
 
@@ -528,25 +528,92 @@ function detectYellowCardFootByColor(img){
   return '';
 }
 
+
+function detectClassicCardFootByColor(img){
+  /*
+    TEMPLATE BIANCO:
+    - DX viene scritto in BLU
+    - SX viene scritto in GIALLO/ORO
+
+    Non usiamo OCR per decidere il piede: analizziamo il colore del testo
+    nella zona PIEDE. Questo evita che SX venga letto come DX o vuoto.
+  */
+  const sx=Math.round(img.naturalWidth*.795);
+  const sy=Math.round(img.naturalHeight*.340);
+  const sw=Math.round(img.naturalWidth*.165);
+  const sh=Math.round(img.naturalHeight*.205);
+
+  const c=document.createElement('canvas');
+  c.width=sw;
+  c.height=sh;
+
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
+
+  const d=ctx.getImageData(0,0,sw,sh).data;
+
+  let blue=0;
+  let yellow=0;
+
+  for(let i=0;i<d.length;i+=4){
+    const R=d[i],G=d[i+1],B=d[i+2];
+
+    // BLU: usato dal template per DX.
+    if(
+      B>105 &&
+      B>R*1.18 &&
+      B>G*1.06 &&
+      (B-R)>30
+    ){
+      blue++;
+    }
+
+    // GIALLO/ORO: usato dal template per SX.
+    if(
+      R>145 &&
+      G>105 &&
+      B<125 &&
+      (R-B)>45 &&
+      (G-B)>30
+    ){
+      yellow++;
+    }
+  }
+
+  const minPixels=Math.max(120,Math.round(sw*sh*.004));
+
+  if(yellow>=minPixels && yellow>blue*1.35)return 'SX';
+  if(blue>=minPixels && blue>yellow*1.35)return 'DX';
+
+  return '';
+}
+
 async function readFootRobust(worker,img,isYellow){
   if(isYellow){
-    // V28: il piede nel template giallo è determinato dal colore,
-    // non dall'OCR della parola DESTRO/SINISTRO.
+    // Template giallo: impronta blu a destra = DX, a sinistra = SX.
     return detectYellowCardFootByColor(img);
   }
 
-  // Template storico: DX / SX scritto graficamente.
+  // Template bianco: prima scelta deterministica dal colore della sigla.
+  const byColor=detectClassicCardFootByColor(img);
+  if(byColor)return byColor;
+
+  // Fallback OCR solo se il colore non è abbastanza chiaro.
   const raw=await readRegion(worker,img,'foot');
   const t=cleanFieldText(raw).replace(/[^A-Z]/g,'');
+
   if(t.includes('SX'))return'SX';
   if(t.includes('DX'))return'DX';
 
+  // Ultimo fallback: parole complete su eventuali varianti.
   const r={x:.780,y:.285,w:.205,h:.270,psm:'6',mode:'dark'};
   const raw2=await readCustomRegion(worker,img,r,"ABCDEFGHIJKLMNOPQRSTUVWXYZ ");
   const t2=cleanFieldText(raw2).replace(/[^A-Z]/g,'');
+
   if(t2.includes('SINISTRO')||t2.includes('SINISTR'))return'SX';
   if(t2.includes('DESTRO')||t2.includes('DESTR'))return'DX';
 
+  // Mai inventare DX.
   return '';
 }
 
@@ -1028,7 +1095,7 @@ async function readCardWithWorker(file,worker,index=0,total=1){
     role:normalizeCardRole(raw.role)||'',
     position:'',
     height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
-    foot:raw.foot||'DX',
+    foot:raw.foot||'',
     year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
     nationality:resolveNationality(detectFlagNationality(img)),
     strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).filter(Boolean),
@@ -1141,7 +1208,7 @@ async function archiveParsedPlayer(parsed){
     role:upper(parsed.role||'ATTACCANTE'),
     position:upper(parsed.position),
     height:parsed.height!==''?Number(parsed.height):null,
-    foot:upper(parsed.foot||'DX'),
+    foot:upper(parsed.foot||''),
     birth_year:parsed.year!==''?Number(parsed.year):null,
     nationality:resolveNationality(parsed.nationality),
     strengths:(parsed.strengths||[]).map(upper),
