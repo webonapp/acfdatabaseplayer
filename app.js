@@ -98,38 +98,28 @@ function detectFlagNationality(img){
 }
 async function processCard(){
  if(!selectedFile)return;
- $('ocrProgress').classList.remove('hidden');$('processCardBtn').disabled=true;$('progressFill').style.width='2%';$('progressText').textContent='PREPARAZIONE CARD';
- let worker=null;
+ $('ocrProgress').classList.remove('hidden');$('processCardBtn').disabled=true;
+ const img=await fileToImage(selectedFile);
+ const canvas=document.createElement('canvas');
+ const scale=Math.min(1,1800/img.naturalWidth);
+ canvas.width=Math.round(img.naturalWidth*scale);
+ canvas.height=Math.round(img.naturalHeight*scale);
+ const ctx=canvas.getContext('2d');
+ ctx.drawImage(img,0,0,canvas.width,canvas.height);
  try{
-   const img=await loadImage(selectedFile);
-   worker=await Tesseract.createWorker('eng',1,{logger:m=>{if(m.status==='recognizing text'&&m.progress){const cur=parseInt($('progressFill').style.width)||0;$('progressFill').style.width=Math.min(94,Math.max(cur,Math.round(m.progress*8)+cur))+'%'}}});
-   const order=['role','first','last','team','number','height','foot','year','strengths','weaknesses'];const out={};
-   for(let i=0;i<order.length;i++){
-     const k=order[i];$('progressText').textContent=`LETTURA ${k.toUpperCase()} · ${i+1}/${order.length}`;$('progressFill').style.width=Math.round(5+(i/order.length)*88)+'%';out[k]=await readRegion(worker,img,k);
-   }
-   const height=cleanDigits(out.height).slice(0,3),yearRaw=cleanDigits(out.year),number=cleanDigits(out.number).slice(0,2);
-   const yearMatch=yearRaw.match(/(?:19|20)\d{2}/);const footRaw=cleanLetters(out.foot).toUpperCase();
-   const parsed={
-     first:cleanFieldText(out.first),
-     last:cleanFieldText(out.last),
-     team:cleanFieldText(out.team),
-     number:number,
-     role:normalizeCardRole(out.role),
-     position:'',
-     height:/^(1[5-9]\d|2[0-2]\d)$/.test(height)?height:'',
-     foot:footRaw.includes('SX')?'SX':'DX',
-     year:yearMatch?yearMatch[0]:'',
-     nationality:detectFlagNationality(img),
-     strengths:cleanMulti(out.strengths).split('\n').filter(Boolean),
-     weaknesses:cleanMulti(out.weaknesses).split('\n').filter(Boolean)
-   };
-   // Se il nome squadra corrisponde già a una squadra del DB, usa la grafia ufficiale del DB.
-   const dbTeam=teams.find(t=>norm(t.name)===norm(parsed.team)||norm(t.name).includes(norm(parsed.team))||norm(parsed.team).includes(norm(t.name)));
-   if(dbTeam)parsed.team=dbTeam.name;
-   $('progressFill').style.width='100%';$('progressText').textContent='LETTURA COMPLETATA';
-   fillImport(parsed);setTimeout(()=>{$('uploadStage').classList.add('hidden');$('importReview').classList.remove('hidden')},180);
- }catch(e){console.error(e);alert('Lettura card non riuscita. Il nuovo lettore usa aree fisse della card: verifica che la card non sia ritagliata e mantenga lo stesso layout.');}
- finally{if(worker)await worker.terminate();$('processCardBtn').disabled=false}
+   $('progressText').textContent='LETTURA STRUTTURATA DELLA CARD...';
+   $('progressFill').style.width='35%';
+   const parsed=await parseCardStructured(canvas);
+   $('progressFill').style.width='100%';
+   fillImport(parsed);
+   $('uploadStage').classList.add('hidden');
+   $('importReview').classList.remove('hidden');
+ }catch(err){
+   console.error(err);
+   alert('Non sono riuscito a leggere correttamente la card. Verifica che il layout sia quello standard.');
+ }finally{
+   $('processCardBtn').disabled=false;
+ }
 }
 function fillImport(p){$('iFirstName').value=p.first||'';$('iLastName').value=p.last||'';$('iTeam').value=p.team||'';$('iNumber').value=p.number||'';$('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'ATTACCANTE';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=p.foot==='SX'?'SX':'DX';$('iBirthYear').value=p.year||'';$('iNationality').value=p.nationality||'';$('iStrengths').value=(p.strengths||[]).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).join(', ')}
 async function ensureWriteSession(){
