@@ -209,21 +209,72 @@ async function ensureWriteSession(){
  const {data,error}=await db.auth.signInAnonymously();if(error)throw new Error('ARCHIVIAZIONE BLOCCATA DA SUPABASE: abilita Authentication → Providers → Anonymous Sign-Ins, poi riprova. Dettaglio: '+error.message);return data.session;
 }
 async function archiveImportedPlayer(){
- if(!db)return alert('Supabase non configurato.');
- const btn=$('importReview').querySelector('button[type="submit"]');const old=btn.textContent;btn.disabled=true;btn.textContent='ARCHIVIAZIONE...';
+ if(!db){alert('Supabase non configurato.');return;}
+ const btn=$('archivePlayerBtn') || $('importReview').querySelector('button:last-child');
+ const oldText=btn ? btn.textContent : 'ARCHIVIA GIOCATORE';
+ if(btn){btn.disabled=true;btn.textContent='ARCHIVIAZIONE...';}
+
  try{
    await ensureWriteSession();
-   const teamName=$('iTeam').value.trim();if(!teamName)throw new Error('Il nome della squadra è obbligatorio.');
+
+   const teamName=$('iTeam').value.trim();
+   if(!teamName)throw new Error('Il nome della squadra è obbligatorio.');
+
    let team=teams.find(t=>norm(t.name)===norm(teamName));
+
    if(!team){
-     const {data,error}=await db.from('teams').insert({name:teamName,country:'',competition:''}).select().single();
-     if(error)throw error;team=data;
+     const {data,error}=await db
+       .from('teams')
+       .insert({name:teamName,country:'',competition:''})
+       .select()
+       .single();
+
+     if(error)throw new Error('Errore creazione squadra: '+error.message);
+     team=data;
+     teams.push(team);
    }
-   const payload={first_name:$('iFirstName').value.trim(),last_name:$('iLastName').value.trim(),team_id:team.id,number:$('iNumber').value?+$('iNumber').value:null,role:$('iRole').value,position:$('iPosition').value.trim(),height:$('iHeight').value?+$('iHeight').value:null,foot:$('iFoot').value,birth_year:$('iBirthYear').value?+$('iBirthYear').value:null,nationality:$('iNationality').value.trim(),strengths:$('iStrengths').value.split(',').map(x=>x.trim()).filter(Boolean),weaknesses:$('iWeaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),notes:'Importato automaticamente da card',updated_at:new Date().toISOString()};
-   if(!payload.first_name||!payload.last_name)throw new Error('Nome e cognome sono obbligatori.');
-   const {error}=await db.from('players').insert(payload);if(error)throw error;
-   closeModal('importModal');resetImport();await loadAll();showView('players');alert('GIOCATORE ARCHIVIATO CORRETTAMENTE.');
- }catch(err){console.error(err);alert(err.message||'Errore durante l’archiviazione.');}
- finally{btn.disabled=false;btn.textContent=old;}
+
+   const payload={
+     first_name:$('iFirstName').value.trim(),
+     last_name:$('iLastName').value.trim(),
+     team_id:team.id,
+     number:$('iNumber').value ? Number($('iNumber').value) : null,
+     role:$('iRole').value,
+     position:$('iPosition').value.trim(),
+     height:$('iHeight').value ? Number($('iHeight').value) : null,
+     foot:$('iFoot').value,
+     birth_year:$('iBirthYear').value ? Number($('iBirthYear').value) : null,
+     nationality:$('iNationality').value.trim(),
+     strengths:$('iStrengths').value.split(',').map(x=>x.trim()).filter(Boolean),
+     weaknesses:$('iWeaknesses').value.split(',').map(x=>x.trim()).filter(Boolean),
+     notes:'Importato automaticamente da card',
+     updated_at:new Date().toISOString()
+   };
+
+   if(!payload.first_name || !payload.last_name)
+     throw new Error('Nome e cognome sono obbligatori.');
+
+   const {data:created,error}=await db
+     .from('players')
+     .insert(payload)
+     .select('*, teams(name)')
+     .single();
+
+   if(error)throw new Error('Errore salvataggio giocatore: '+error.message);
+
+   if(created) players.unshift(created);
+
+   closeModal('importModal');
+   resetImport();
+   await loadAll();
+   showView('players');
+   alert('GIOCATORE ARCHIVIATO CORRETTAMENTE.');
+
+ }catch(err){
+   console.error('Archive error:',err);
+   alert(err?.message || 'Errore durante l’archiviazione.');
+ }finally{
+   if(btn){btn.disabled=false;btn.textContent=oldText;}
+ }
 }
-$('importReview').onsubmit=async e=>{e.preventDefault();e.stopPropagation();await archiveImportedPlayer()};populateCountrySelects();loadAll().catch(e=>{console.error(e);alert(e.message)});
+$('importReview').addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();await archiveImportedPlayer();});populateCountrySelects();loadAll().catch(e=>{console.error(e);alert(e.message)});
