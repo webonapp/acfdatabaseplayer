@@ -263,3 +263,29 @@ Modifiche:
 - Rimossa completamente la nota automatica "IMPORTATO AUTOMATICAMENTE DA CARD".
 - I nuovi giocatori importati dalle card vengono salvati con il campo NOTE vuoto.
 - Il campo NOTE resta comunque disponibile per inserimenti manuali.
+
+
+## V31 - Miglioramento lettura OCR
+
+ALTEZZA
+- Lettura multipla della zona altezza con 4 preprocess diversi.
+- Ogni variante viene letta sia in PSM 6 sia in PSM 7.
+- Vengono accettati solo valori plausibili tra 150 e 215 cm.
+- Il valore finale viene scelto per consenso tra più letture.
+- Se due letture sono in conflitto e non c'è sufficiente certezza, il campo resta vuoto invece di salvare un'altezza errata.
+
+PUNTI DI FORZA / DEBOLI
+- Crop ampliato ulteriormente su tutti i lati.
+- Quattro passaggi OCR: immagine originale, filtro colore permissivo, filtro colore forte e scala di grigi.
+- Viene selezionata la lettura con maggior contenuto alfabetico.
+- Recupero automatico delle prime lettere perse quando un'altra passata OCR le rileva.
+- Gestione dei casi tipo "F ILTRANTE" -> "FILTRANTE".
+
+NAZIONALITÀ
+- Nuovo classificatore V31 con punteggio per distribuzione spaziale dei colori.
+- Il sistema confronta bande orizzontali, verticali e composizione globale.
+- Aggiunti controlli di confidenza e margine rispetto alla seconda nazione candidata.
+- Se il risultato è ambiguo, non viene più assegnata una nazionalità sbagliata.
+- Migliorati i pattern di Germania, Scozia, Spagna, Francia, Italia, Belgio, Paesi Bassi, Argentina, Danimarca, Inghilterra, Brasile, Polonia, Ucraina, Austria, Nigeria, Irlanda, Romania e Colombia.
+
+Il riconoscimento PIEDE della V29 resta invariato.

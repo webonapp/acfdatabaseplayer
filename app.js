@@ -1006,6 +1006,349 @@ async function createCardWorker(logger){
   return await Tesseract.createWorker('eng',1,{logger});
 }
 
+
+/* ===== V31: LETTURA MULTI-PASS ===== */
+
+function expandedRegion(r,padX=.012,padY=.010){
+  return {
+    ...r,
+    x:Math.max(0,r.x-padX),
+    y:Math.max(0,r.y-padY),
+    w:Math.min(1-(Math.max(0,r.x-padX)),r.w+padX*2),
+    h:Math.min(1-(Math.max(0,r.y-padY)),r.h+padY*2)
+  };
+}
+
+function cropRegionVariant(img,r,scale=3.2,variant='normal'){
+  const sx=Math.max(0,Math.round(img.naturalWidth*r.x));
+  const sy=Math.max(0,Math.round(img.naturalHeight*r.y));
+  const sw=Math.min(img.naturalWidth-sx,Math.round(img.naturalWidth*r.w));
+  const sh=Math.min(img.naturalHeight-sy,Math.round(img.naturalHeight*r.h));
+
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(sw*scale));
+  c.height=Math.max(1,Math.round(sh*scale));
+
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,c.width,c.height);
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+
+  if(variant==='original')return c;
+
+  const data=ctx.getImageData(0,0,c.width,c.height);
+  const a=data.data;
+  const mode=r.mode||'dark';
+
+  for(let i=0;i<a.length;i+=4){
+    const R=a[i],G=a[i+1],B=a[i+2];
+    const gray=.299*R+.587*G+.114*B;
+    let ink=false;
+
+    if(variant==='gray'){
+      ink=gray<195;
+    }else if(mode==='green'){
+      // Due passaggi: permissivo e più selettivo.
+      ink=variant==='soft'
+        ?(G>72 && G>R*1.015 && G>B*.96)
+        :(G>90 && G>R*1.055 && G>B*.99);
+    }else if(mode==='red'){
+      ink=variant==='soft'
+        ?(R>90 && R>G*1.025 && R>B*1.015)
+        :(R>115 && R>G*1.075 && R>B*1.055);
+    }else{
+      ink=variant==='soft'?gray<205:gray<175;
+    }
+
+    const v=ink?0:255;
+    a[i]=a[i+1]=a[i+2]=v;
+    a[i+3]=255;
+  }
+  ctx.putImageData(data,0,0);
+  return c;
+}
+
+async function recognizeCanvas(worker,canvas,{psm='6',whitelist=''}={}){
+  const params={
+    tessedit_pageseg_mode:String(psm),
+    preserve_interword_spaces:'1',
+    user_defined_dpi:'300',
+    load_system_dawg:'0',
+    load_freq_dawg:'0'
+  };
+  if(whitelist)params.tessedit_char_whitelist=whitelist;
+  await worker.setParameters(params);
+  const {data}=await worker.recognize(canvas);
+  return String(data?.text||'');
+}
+
+function extractHeightCandidate(text){
+  const digits=String(text||'').replace(/\D/g,'');
+  const candidates=[];
+
+  // Search all 3-digit windows, not only the first OCR result.
+  for(let i=0;i<=digits.length-3;i++){
+    const n=Number(digits.slice(i,i+3));
+    if(n>=150&&n<=215)candidates.push(String(n));
+  }
+  return candidates;
+}
+
+async function readHeightRobust(worker,img,isYellow){
+  const base=isYellow?CARD_REGIONS_YELLOW.height:CARD_REGIONS.height;
+  const r=expandedRegion(base,.018,.018);
+
+  const variants=[
+    cropRegionVariant(img,r,3.5,'original'),
+    cropRegionVariant(img,r,3.5,'gray'),
+    cropRegionVariant(img,r,3.8,'soft'),
+    cropRegionVariant(img,r,4.0,'hard')
+  ];
+
+  const votes=new Map();
+
+  for(const canvas of variants){
+    for(const psm of ['6','7']){
+      const raw=await recognizeCanvas(worker,canvas,{psm,whitelist:'0123456789CMcm '});
+      for(const c of extractHeightCandidate(raw)){
+        votes.set(c,(votes.get(c)||0)+1);
+      }
+    }
+  }
+
+  if(!votes.size)return '';
+
+  const ranked=[...votes.entries()]
+    .sort((a,b)=>b[1]-a[1] || Math.abs(Number(a[0])-182)-Math.abs(Number(b[0])-182));
+
+  // Require consensus when possible.
+  if(ranked[0][1]>=2)return ranked[0][0];
+
+  // A single plausible read is accepted only if unique.
+  return ranked.length===1?ranked[0][0]:'';
+}
+
+function normalizeOcrLine(s){
+  return cleanFieldText(s)
+    .replace(/\s*-\s*/g,' - ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+function lineQuality(s){
+  const text=normalizeOcrLine(s);
+  const letters=(text.match(/[A-ZÀ-ÖØ-Ý]/g)||[]).length;
+  const words=text.split(/\s+/).filter(Boolean).length;
+  const bad=(text.match(/[^A-ZÀ-ÖØ-Ý0-9'’\-\/ ]/g)||[]).length;
+  return letters + words*.45 - bad*2;
+}
+
+function splitOcrLines(text){
+  return String(text||'')
+    .split(/\n+/)
+    .map(normalizeOcrLine)
+    .filter(x=>x.length>1);
+}
+
+function mergeBestTextCandidates(candidates){
+  const lineSets=candidates.map(splitOcrLines).filter(x=>x.length);
+  if(!lineSets.length)return '';
+
+  // Pick the candidate with the strongest total textual content.
+  let best=lineSets[0];
+  let bestScore=-Infinity;
+
+  for(const lines of lineSets){
+    const score=lines.reduce((s,l)=>s+lineQuality(l),0);
+    if(score>bestScore){
+      bestScore=score;
+      best=lines;
+    }
+  }
+
+  // Recover a likely clipped first letter using corresponding lines
+  // from another pass when that pass is one character longer.
+  const result=best.slice();
+
+  for(let i=0;i<result.length;i++){
+    const current=result[i];
+    let chosen=current;
+
+    for(const lines of lineSets){
+      const alt=lines[i];
+      if(!alt)continue;
+
+      const a=alt.replace(/\s/g,'');
+      const b=chosen.replace(/\s/g,'');
+
+      if(
+        a.length===b.length+1 &&
+        a.slice(1)===b &&
+        /^[A-ZÀ-ÖØ-Ý]/.test(a[0])
+      ){
+        chosen=alt;
+      }
+
+      // Also recover OCR split initial: "F ILTRANTE" -> "FILTRANTE".
+      if(/^[A-ZÀ-ÖØ-Ý]\s+[A-ZÀ-ÖØ-Ý]{2,}/.test(alt)){
+        const repaired=alt.replace(/^([A-ZÀ-ÖØ-Ý])\s+([A-ZÀ-ÖØ-Ý])/, '$1$2');
+        if(lineQuality(repaired)>lineQuality(chosen))chosen=repaired;
+      }
+    }
+
+    result[i]=chosen;
+  }
+
+  return result.join('\n');
+}
+
+async function readColoredTextRobust(worker,img,baseRegion,mode){
+  const r=expandedRegion(baseRegion,.030,.018);
+  r.mode=mode;
+
+  const canvases=[
+    cropRegionVariant(img,r,3.1,'original'),
+    cropRegionVariant(img,r,3.3,'soft'),
+    cropRegionVariant(img,r,3.3,'hard'),
+    cropRegionVariant(img,r,3.1,'gray')
+  ];
+
+  const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇ 0123456789,'’-/ ";
+  const reads=[];
+
+  for(const c of canvases){
+    reads.push(await recognizeCanvas(worker,c,{psm:'6',whitelist}));
+  }
+
+  return mergeBestTextCandidates(reads);
+}
+
+/*
+  V31 - Bandiera:
+  confidence più alta e struttura spaziale.
+  Meglio lasciare vuoto un valore dubbio che assegnare una nazione sbagliata.
+*/
+function detectFlagNationalityV31(img){
+  const yellowLayout=isYellowCardLayout(img);
+  const r=yellowLayout
+    ?{x:.086,y:.758,w:.078,h:.145}
+    :{x:.070,y:.735,w:.105,h:.180};
+
+  const sx=Math.max(0,Math.round(img.naturalWidth*r.x));
+  const sy=Math.max(0,Math.round(img.naturalHeight*r.y));
+  const sw=Math.min(img.naturalWidth-sx,Math.round(img.naturalWidth*r.w));
+  const sh=Math.min(img.naturalHeight-sy,Math.round(img.naturalHeight*r.h));
+
+  const c=document.createElement('canvas');
+  c.width=240;c.height=240;
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,240,240);
+  const px=ctx.getImageData(0,0,240,240).data;
+
+  function cls(R,G,B){
+    const max=Math.max(R,G,B),min=Math.min(R,G,B);
+    if(R<78&&G<78&&B<78)return'K';
+    if(R>150&&R>G*1.30&&R>B*1.25)return'R';
+    if(R>190&&G>190&&B>190&&max-min<58)return'W';
+    if(B>100&&B>R*1.24&&B>G*1.08)return'B';
+    if(G>90&&G>R*1.08&&G>B*1.03)return'G';
+    if(R>150&&G>118&&B<115&&R>B*1.28&&G>B*1.15)return'Y';
+    return'O';
+  }
+
+  function stats(x0,y0,x1,y1){
+    const count={K:0,R:0,W:0,B:0,G:0,Y:0,O:0};
+    let n=0;
+    for(let y=y0;y<y1;y+=2){
+      for(let x=x0;x<x1;x+=2){
+        const dx=x-120,dy=y-120;
+        if(dx*dx+dy*dy>88*88)continue;
+        const i=(y*240+x)*4;
+        count[cls(px[i],px[i+1],px[i+2])]++;
+        n++;
+      }
+    }
+    const q=k=>(count[k]||0)/Math.max(1,n);
+    const order=['K','R','W','B','G','Y'].sort((a,b)=>q(b)-q(a));
+    return{count,n,q,dom:order[0],domRatio:q(order[0])};
+  }
+
+  const all=stats(25,25,215,215);
+  const left=stats(35,45,95,195);
+  const midV=stats(95,45,145,195);
+  const right=stats(145,45,205,195);
+  const top=stats(45,35,195,95);
+  const midH=stats(45,95,195,145);
+  const bottom=stats(45,145,195,205);
+  const q=all.q;
+
+  const scores=[];
+
+  function add(name,score){
+    if(Number.isFinite(score))scores.push([name,score]);
+  }
+
+  // Horizontal tricolors.
+  add('GERMANIA',
+    (top.q('K')*2.2)+(midH.q('R')*2.2)+(bottom.q('Y')*2.2)
+    -q('B')-q('G'));
+
+  add('PAESI BASSI',
+    (top.q('R')*2)+(midH.q('W')*2)+(bottom.q('B')*2)-q('G'));
+
+  add('SPAGNA',
+    (top.q('R')*1.5)+(midH.q('Y')*2.3)+(bottom.q('R')*1.5)-q('B')-q('G'));
+
+  add('ARGENTINA',
+    (top.q('B')*1.8)+(midH.q('W')*2.1)+(bottom.q('B')*1.8)-q('R'));
+
+  // Vertical tricolors.
+  add('FRANCIA',
+    (left.q('B')*2)+(midV.q('W')*2)+(right.q('R')*2)-q('G')-q('Y'));
+
+  add('ITALIA',
+    (left.q('G')*2)+(midV.q('W')*2)+(right.q('R')*2)-q('B'));
+
+  add('BELGIO',
+    (left.q('K')*2)+(midV.q('Y')*2)+(right.q('R')*2)-q('B')-q('G'));
+
+  // Cross / field flags.
+  add('DANIMARCA', q('R')*3.1 + q('W')*.9 - q('B')*2 - q('G')*2 - q('Y'));
+  add('INGHILTERRA', q('W')*2.7 + q('R')*1.4 - q('B')*1.3 - q('G')*1.3 - q('Y'));
+  add('SCOZIA', q('B')*3 + q('W')*1.15 - q('R')*2 - q('Y')*1.5);
+  add('BRASILE', q('G')*2.5 + q('Y')*1.7 + q('B')*.7 - q('R'));
+
+  // Other common football flags, high-level color signatures.
+  add('POLONIA', top.q('W')*2.2 + bottom.q('R')*2.2 - q('B')-q('G')-q('Y'));
+  add('UCRAINA', top.q('B')*2.1 + bottom.q('Y')*2.1 - q('R')-q('G'));
+  add('AUSTRIA', top.q('R')*1.8 + midH.q('W')*2.2 + bottom.q('R')*1.8 - q('B')-q('G'));
+  add('NIGERIA', left.q('G')*2 + midV.q('W')*2 + right.q('G')*2 - q('R')-q('B'));
+  add('IRLANDA', left.q('G')*2 + midV.q('W')*2 + right.q('Y')*1.6 - q('B'));
+  add('ROMANIA', left.q('B')*1.8 + midV.q('Y')*1.8 + right.q('R')*1.8 - q('G'));
+  add('COLOMBIA', top.q('Y')*2 + midH.q('B')*1.4 + bottom.q('R')*1.5 - q('G'));
+
+  scores.sort((a,b)=>b[1]-a[1]);
+
+  if(!scores.length)return '';
+
+  const [bestName,bestScore]=scores[0];
+  const second=scores[1]?.[1]??-Infinity;
+
+  // Confidence gating. Stops the current "wrong nation" issue.
+  if(bestScore<1.55)return '';
+  if(bestScore-second<.18)return '';
+
+  // Additional hard guards for flags which otherwise overlap.
+  if(bestName==='DANIMARCA' && !(q('R')>.34&&q('W')>.055))return '';
+  if(bestName==='INGHILTERRA' && !(q('W')>.32&&q('R')>.07))return '';
+  if(bestName==='SCOZIA' && !(q('B')>.33&&q('W')>.08))return '';
+  if(bestName==='BRASILE' && !(q('G')>.12&&q('Y')>.07))return '';
+
+  return bestName;
+}
+
 async function readCardWithWorker(file,worker,index=0,total=1){
   const img=await loadImage(file);
   const yellow=isYellowCardLayout(img);
@@ -1037,7 +1380,7 @@ async function readCardWithWorker(file,worker,index=0,total=1){
     raw.role=await readRoleRobust(worker,img);
 
     progress('ALTEZZA',s++,steps);
-    raw.height=await readCustomRegion(worker,img,CARD_REGIONS_YELLOW.height,'0123456789');
+    raw.height=await readHeightRobust(worker,img,true);
 
     progress('PIEDE',s++,steps);
     raw.foot=await readFootRobust(worker,img,true);
@@ -1046,16 +1389,10 @@ async function readCardWithWorker(file,worker,index=0,total=1){
     raw.year=await readCustomRegion(worker,img,CARD_REGIONS_YELLOW.year,'0123456789');
 
     progress('PUNTI DI FORZA',s++,steps);
-    raw.strengths=await readCustomRegion(
-      worker,img,CARD_REGIONS_YELLOW.strengths,
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇ 0123456789,'-/ "
-    );
+    raw.strengths=await readColoredTextRobust(worker,img,CARD_REGIONS_YELLOW.strengths,'green');
 
     progress('PUNTI DEBOLI',s++,steps);
-    raw.weaknesses=await readCustomRegion(
-      worker,img,CARD_REGIONS_YELLOW.weaknesses,
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇ 0123456789,'-/ "
-    );
+    raw.weaknesses=await readColoredTextRobust(worker,img,CARD_REGIONS_YELLOW.weaknesses,'red');
 
     progress('NAZIONALITÀ',s++,steps);
 
@@ -1066,12 +1403,12 @@ async function readCardWithWorker(file,worker,index=0,total=1){
       number:'',
       role:normalizeCardRole(raw.role)||'',
       position:'',
-      height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
+      height:String(raw.height||''),
       foot:raw.foot||'',
       year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
-      nationality:resolveNationality(detectFlagNationality(img)),
-      strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).filter(Boolean),
-      weaknesses:cleanMulti(raw.weaknesses).split('\n').map(cleanFieldText).filter(Boolean)
+      nationality:resolveNationality(detectFlagNationalityV31(img)),
+      strengths:splitOcrLines(raw.strengths),
+      weaknesses:splitOcrLines(raw.weaknesses)
     };
   }
 
@@ -1084,6 +1421,9 @@ async function readCardWithWorker(file,worker,index=0,total=1){
     progress(key.toUpperCase(),k,keys.length);
     if(key==='role')raw[key]=await readRoleRobust(worker,img);
     else if(key==='foot')raw[key]=await readFootRobust(worker,img,false);
+    else if(key==='height')raw[key]=await readHeightRobust(worker,img,false);
+    else if(key==='strengths')raw[key]=await readColoredTextRobust(worker,img,CARD_REGIONS.strengths,'green');
+    else if(key==='weaknesses')raw[key]=await readColoredTextRobust(worker,img,CARD_REGIONS.weaknesses,'red');
     else raw[key]=await readRegion(worker,img,key);
   }
 
@@ -1094,12 +1434,12 @@ async function readCardWithWorker(file,worker,index=0,total=1){
     number:cleanDigits(raw.number).slice(0,2),
     role:normalizeCardRole(raw.role)||'',
     position:'',
-    height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
+    height:String(raw.height||''),
     foot:raw.foot||'',
     year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
-    nationality:resolveNationality(detectFlagNationality(img)),
-    strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).filter(Boolean),
-    weaknesses:cleanMulti(raw.weaknesses).split('\n').map(cleanFieldText).filter(Boolean)
+    nationality:resolveNationality(detectFlagNationalityV31(img)),
+    strengths:splitOcrLines(raw.strengths),
+    weaknesses:splitOcrLines(raw.weaknesses)
   };
 }
 
