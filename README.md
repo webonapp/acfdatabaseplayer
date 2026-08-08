@@ -155,3 +155,11 @@ Correzioni:
 - Refresh non forza più il login se la sessione è ancora valida.
 - Service Worker disattivato e cache precedenti eliminate.
 - Validazione JavaScript e controllo HTML eseguiti prima dello ZIP.
+
+## V22 - Multi-card OCR fix
+- Il batch OCR usa un solo worker Tesseract condiviso per tutte le card.
+- Evita creazione/distruzione ripetuta di 8+ worker, causa probabile degli errori multipli.
+- La lettura OCR e le coordinate del template non sono state modificate.
+- Se una card fallisce, le altre continuano.
+- In caso di errore viene mostrato anche il dettaglio tecnico della prima eccezione.
+- Sintassi JavaScript verificata con Node.

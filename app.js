@@ -472,43 +472,53 @@ function renderCardTabs(){
   });
 }
 
+async function createCardWorker(logger){
+  return await Tesseract.createWorker('eng',1,{logger});
+}
+
+async function readCardWithWorker(file,worker,index=0,total=1){
+  const img=await loadImage(file);
+  const keys=['role','first','last','team','number','height','foot','year','strengths','weaknesses'];
+  const raw={};
+
+  for(let k=0;k<keys.length;k++){
+    const key=keys[k];
+    if($('progressText')){
+      $('progressText').textContent=total>1
+        ?`CARD ${index+1}/${total} · ${key.toUpperCase()}`
+        :`LETTURA ${key.toUpperCase()}...`;
+    }
+    const overall=((index+(k/keys.length))/total)*100;
+    if($('progressFill'))$('progressFill').style.width=`${Math.round(overall)}%`;
+    raw[key]=await readRegion(worker,img,key);
+  }
+
+  return {
+    first:cleanFieldText(raw.first),
+    last:cleanFieldText(raw.last),
+    team:cleanFieldText(raw.team),
+    number:cleanDigits(raw.number).slice(0,2),
+    role:normalizeCardRole(raw.role),
+    position:'',
+    height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
+    foot:/SX/i.test(raw.foot)?'SX':'DX',
+    year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
+    nationality:resolveNationality(detectFlagNationality(img)),
+    strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).filter(Boolean),
+    weaknesses:cleanMulti(raw.weaknesses).split('\n').map(cleanFieldText).filter(Boolean)
+  };
+}
+
 async function readSingleCardFile(file,index=0,total=1){
   let worker=null;
   try{
-    const img=await loadImage(file);
-
-    worker=await Tesseract.createWorker('eng',1,{
-      logger:m=>{
-        if(m.status==='recognizing text'){
-          const progress=m.progress||0;
-          $('progressText').textContent=total>1
-            ?`CARD ${index+1}/${total} · LETTURA ${Math.round(progress*100)}%`
-            :`LETTURA ${Math.round(progress*100)}%`;
-          $('progressFill').style.width=total>1
-            ?`${Math.round(((index+progress)/total)*100)}%`
-            :`${Math.round(progress*100)}%`;
-        }
+    worker=await createCardWorker(m=>{
+      if(m.status==='recognizing text'&&$('progressText')){
+        const p=Math.round((m.progress||0)*100);
+        $('progressText').textContent=total>1?`CARD ${index+1}/${total} · OCR ${p}%`:`OCR ${p}%`;
       }
     });
-
-    const keys=['role','first','last','team','number','height','foot','year','strengths','weaknesses'];
-    const raw={};
-    for(const key of keys)raw[key]=await readRegion(worker,img,key);
-
-    return {
-      first:cleanFieldText(raw.first),
-      last:cleanFieldText(raw.last),
-      team:cleanFieldText(raw.team),
-      number:cleanDigits(raw.number).slice(0,2),
-      role:normalizeCardRole(raw.role),
-      position:'',
-      height:(cleanDigits(raw.height).match(/1[5-9]\d|2[0-1]\d/)||[''])[0],
-      foot:/SX/i.test(raw.foot)?'SX':'DX',
-      year:(cleanDigits(raw.year).match(/19\d{2}|20\d{2}/)||[''])[0],
-      nationality:resolveNationality(detectFlagNationality(img)),
-      strengths:cleanMulti(raw.strengths).split('\n').map(cleanFieldText).filter(Boolean),
-      weaknesses:cleanMulti(raw.weaknesses).split('\n').map(cleanFieldText).filter(Boolean)
-    };
+    return await readCardWithWorker(file,worker,index,total);
   }finally{
     if(worker)try{await worker.terminate()}catch(_){}
   }
@@ -516,37 +526,70 @@ async function readSingleCardFile(file,index=0,total=1){
 
 async function processBatchCards(){
   if(!selectedFiles.length)return;
-  $('ocrProgress').classList.remove('hidden');
-  $('processCardBtn').disabled=true;
 
-  for(let i=0;i<selectedFiles.length;i++){
-    currentBatchIndex=i;
-    batchResults[i]={status:'processing',parsed:null};
-    renderBatchQueue();
+  $('ocrProgress')?.classList.remove('hidden');
+  if($('processCardBtn'))$('processCardBtn').disabled=true;
+  batchResults=new Array(selectedFiles.length).fill(null);
 
-    try{
-      const parsed=await readSingleCardFile(selectedFiles[i],i,selectedFiles.length);
-      batchResults[i]={status:'done',parsed};
-    }catch(err){
-      console.error(err);
-      batchResults[i]={status:'error',parsed:null,error:err?.message||String(err)};
+  let worker=null;
+  let firstError='';
+
+  try{
+    if($('progressText'))$('progressText').textContent='AVVIO MOTORE OCR...';
+    if($('progressFill'))$('progressFill').style.width='2%';
+
+    // Un solo worker per tutte le card. Evita crash/memoria quando vengono selezionate molte immagini.
+    worker=await createCardWorker(m=>{
+      if(m.status==='loading tesseract core'&&$('progressText'))$('progressText').textContent='CARICAMENTO LETTORE...';
+      else if(m.status==='loading language traineddata'&&$('progressText'))$('progressText').textContent='CARICAMENTO MODELLO OCR...';
+      else if(m.status==='initializing api'&&$('progressText'))$('progressText').textContent='PREPARAZIONE OCR...';
+    });
+
+    for(let i=0;i<selectedFiles.length;i++){
+      currentBatchIndex=i;
+      batchResults[i]={status:'processing',parsed:null};
+      renderBatchQueue();
+
+      try{
+        const parsed=await readCardWithWorker(selectedFiles[i],worker,i,selectedFiles.length);
+        batchResults[i]={status:'done',parsed};
+      }catch(err){
+        console.error('CARD OCR ERROR',i,err);
+        const msg=String(err?.message||err||'ERRORE OCR');
+        if(!firstError)firstError=msg;
+        batchResults[i]={status:'error',parsed:null,error:msg};
+      }
+
+      if($('progressFill'))$('progressFill').style.width=`${Math.round(((i+1)/selectedFiles.length)*100)}%`;
+      renderBatchQueue();
+      await new Promise(r=>setTimeout(r,20));
     }
+  }catch(err){
+    console.error('BATCH WORKER ERROR',err);
+    firstError=String(err?.message||err||'ERRORE AVVIO OCR');
+  }finally{
+    if(worker)try{await worker.terminate()}catch(_){}
+    if($('processCardBtn'))$('processCardBtn').disabled=false;
   }
 
   const first=batchResults.findIndex(x=>x?.parsed);
-  $('processCardBtn').disabled=false;
-
   if(first<0){
-    alert('NON È STATO POSSIBILE LEGGERE LE CARD.');
+    const detail=firstError?`\n\nDETTAGLIO: ${firstError}`:'';
+    alert('NON È STATO POSSIBILE LEGGERE LE CARD.'+detail);
     return;
   }
 
   currentBatchIndex=first;
   fillImport(batchResults[first].parsed);
-  $('uploadStage').classList.add('hidden');
-  $('importReview').classList.remove('hidden');
+  $('uploadStage')?.classList.add('hidden');
+  $('importReview')?.classList.remove('hidden');
   renderCardTabs();
   renderBatchQueue();
+
+  const failed=batchResults.filter(x=>x?.status==='error').length;
+  if(failed){
+    alert(`${batchResults.length-failed} CARD LETTE CORRETTAMENTE · ${failed} CARD CON ERRORE. PUOI ARCHIVIARE QUELLE LETTE E RIPROVARE LE ALTRE.`);
+  }
 }
 
 async function archiveParsedPlayer(parsed){
