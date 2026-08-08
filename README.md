@@ -216,3 +216,25 @@ Correzioni:
 - Pattern specifici ottimizzati per Germania e Scozia sulle card fornite.
 - Se la nazionalità non è sufficientemente sicura, resta vuota invece di assegnarne una errata.
 - Il template storico resta supportato.
+
+
+## V28 - Deep fix PIEDE + NAZIONALITÀ
+
+Analisi profonda:
+- Nel template giallo il piede dominante è già codificato graficamente: una delle due impronte è blu.
+- Usare OCR sulla parola DESTRO/SINISTRO introduceva errori inutili.
+- La nazionalità veniva classificata quasi solo tramite percentuale totale dei colori, metodo fragile con bordi, JPEG e sfondi.
+
+Fix:
+- PIEDE template giallo: eliminato completamente l'OCR.
+- Il software rileva direttamente il baricentro dei pixel blu:
+  - impronta destra blu = DX
+  - impronta sinistra blu = SX
+- Se non rileva abbastanza blu, lascia il campo vuoto invece di inventare un valore.
+- NAZIONALITÀ: nuovo algoritmo basato anche sulla geometria della bandiera.
+- Riconosce bande verticali/orizzontali e pattern cromatici.
+- Germania riconosciuta come nero/rosso/giallo orizzontale.
+- Scozia riconosciuta da campo blu dominante + diagonali bianche.
+- Migliorati anche Francia, Italia, Belgio, Paesi Bassi, Argentina, Spagna, Danimarca, Inghilterra e Brasile.
+- Il campo nazionalità viene aggiornato esplicitamente insieme alla preview della bandiera.
+- Il template storico rimane invariato.

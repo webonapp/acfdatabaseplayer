@@ -469,52 +469,73 @@ async function readCustomRegion(worker,img,r,whitelist){
   return data.text||'';
 }
 
-async function readFootRobust(worker,img,isYellow){
-  if(isYellow){
-    // Primo passaggio: leggi l'intero blocco PIEDE + parola.
-    const raw=await readCustomRegion(
-      worker,
-      img,
-      CARD_REGIONS_YELLOW.footText,
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZ "
-    );
 
-    const t=cleanFieldText(raw).replace(/[^A-Z]/g,'');
+function detectYellowCardFootByColor(img){
+  /*
+    Nel template giallo il piede dominante non va letto come testo:
+    una delle due impronte è RIEMPITA DI BLU.
 
-    if(
-      t.includes('SINISTRO') ||
-      t.includes('SINISTR') ||
-      t.includes('SINIST') ||
-      /^SIN/.test(t)
-    ) return 'SX';
+    Coordinate reali sulle card 2048×1152:
+      area piedi circa x 1680..1890, y 430..620.
 
-    if(
-      t.includes('DESTRO') ||
-      t.includes('DESTR') ||
-      t.includes('DEST') ||
-      /^DES/.test(t)
-    ) return 'DX';
+    Se il baricentro del blu è a destra => DESTRO => DX.
+    Se il baricentro del blu è a sinistra => SINISTRO => SX.
+  */
+  const sx=Math.round(img.naturalWidth*.805);
+  const sy=Math.round(img.naturalHeight*.345);
+  const sw=Math.round(img.naturalWidth*.125);
+  const sh=Math.round(img.naturalHeight*.205);
 
-    // Secondo passaggio senza whitelist, utile quando OCR confonde una lettera.
-    const c=cropCustomRegion(img,CARD_REGIONS_YELLOW.footText,3.5);
-    await worker.setParameters({
-      tessedit_pageseg_mode:'6',
-      preserve_interword_spaces:'1',
-      user_defined_dpi:'300',
-      load_system_dawg:'0',
-      load_freq_dawg:'0'
-    });
-    const {data}=await worker.recognize(c);
-    const t2=cleanFieldText(data.text||'').replace(/[^A-Z]/g,'');
+  const c=document.createElement('canvas');
+  c.width=sw;
+  c.height=sh;
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
 
-    if(/SIN.{0,3}TR/.test(t2) || t2.includes('SINISTR')) return 'SX';
-    if(/DES.{0,3}TR/.test(t2) || t2.includes('DESTR')) return 'DX';
+  const d=ctx.getImageData(0,0,sw,sh).data;
+  let blueCount=0;
+  let xSum=0;
 
-    // Nessun valore inventato.
-    return '';
+  for(let y=0;y<sh;y++){
+    for(let x=0;x<sw;x++){
+      const i=(y*sw+x)*4;
+      const R=d[i],G=d[i+1],B=d[i+2];
+
+      // Blu saturo dell'impronta. Soglia volutamente larga per JPEG.
+      const isBlue=
+        B>105 &&
+        B>R*1.30 &&
+        B>G*1.10 &&
+        (B-R)>45;
+
+      if(isBlue){
+        blueCount++;
+        xSum+=x;
+      }
+    }
   }
 
-  // Template storico: DX / SX.
+  // Se non c'è abbastanza blu, non inventiamo il piede.
+  if(blueCount<120)return '';
+
+  const centroidX=xSum/blueCount;
+  const relative=centroidX/sw;
+
+  // Le due impronte sono ben separate. Il confine centrale è circa 0.52.
+  if(relative>0.52)return 'DX';
+  if(relative<0.48)return 'SX';
+
+  return '';
+}
+
+async function readFootRobust(worker,img,isYellow){
+  if(isYellow){
+    // V28: il piede nel template giallo è determinato dal colore,
+    // non dall'OCR della parola DESTRO/SINISTRO.
+    return detectYellowCardFootByColor(img);
+  }
+
+  // Template storico: DX / SX scritto graficamente.
   const raw=await readRegion(worker,img,'foot');
   const t=cleanFieldText(raw).replace(/[^A-Z]/g,'');
   if(t.includes('SX'))return'SX';
@@ -651,7 +672,12 @@ async function readRegion(worker,img,key){
 }
 function detectFlagNationality(img){
   const yellowLayout=isYellowCardLayout(img);
-  const r=yellowLayout?CARD_REGIONS_YELLOW.flag:CARD_REGIONS.flag;
+
+  // Sul template giallo la bandiera è sempre nello stesso punto.
+  // Usiamo un crop calibrato sui pixel reali delle card inviate.
+  const r=yellowLayout
+    ?{x:.088,y:.772,w:.070,h:.118}
+    :CARD_REGIONS.flag;
 
   const sx=Math.max(0,Math.round(img.naturalWidth*r.x));
   const sy=Math.max(0,Math.round(img.naturalHeight*r.y));
@@ -659,60 +685,121 @@ function detectFlagNationality(img){
   const sh=Math.min(img.naturalHeight-sy,Math.round(img.naturalHeight*r.h));
 
   const c=document.createElement('canvas');
-  c.width=240;
-  c.height=240;
+  c.width=300;
+  c.height=300;
+
   const ctx=c.getContext('2d',{willReadFrequently:true});
   ctx.imageSmoothingEnabled=true;
   ctx.imageSmoothingQuality='high';
-  ctx.drawImage(img,sx,sy,sw,sh,0,0,240,240);
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,300,300);
 
-  const d=ctx.getImageData(0,0,240,240).data;
-  const counts={K:0,R:0,W:0,B:0,G:0,Y:0,O:0};
-  let total=0;
+  const px=ctx.getImageData(0,0,300,300).data;
 
-  const classify=(R,G,B)=>{
-    const max=Math.max(R,G,B),min=Math.min(R,G,B);
+  function colorAt(x,y){
+    const i=(y*300+x)*4;
+    const R=px[i],G=px[i+1],B=px[i+2];
+    const mx=Math.max(R,G,B),mn=Math.min(R,G,B);
 
     if(R<85&&G<85&&B<85)return'K';
-    if(R>150&&R>G*1.35&&R>B*1.30)return'R';
-    if(R>185&&G>185&&B>185&&max-min<60)return'W';
-    if(B>95&&B>R*1.28&&B>G*1.10)return'B';
-    if(G>90&&G>R*1.10&&G>B*1.05)return'G';
-    if(R>145&&G>115&&B<115&&R>B*1.35&&G>B*1.20)return'Y';
+    if(R>145&&R>G*1.32&&R>B*1.25)return'R';
+    if(R>185&&G>185&&B>185&&mx-mn<65)return'W';
+    if(B>95&&B>R*1.28&&B>G*1.08)return'B';
+    if(G>88&&G>R*1.10&&G>B*1.03)return'G';
+    if(R>145&&G>112&&B<120&&R>B*1.25&&G>B*1.12)return'Y';
     return'O';
-  };
-
-  // Analizza solo il cuore della bandiera, evitando bordo bianco e sfondo card.
-  for(let y=25;y<215;y+=2){
-    for(let x=25;x<215;x+=2){
-      const dx=x-120,dy=y-120;
-      if(dx*dx+dy*dy>82*82)continue;
-
-      const i=(y*240+x)*4;
-      const cls=classify(d[i],d[i+1],d[i+2]);
-      counts[cls]++;
-      total++;
-    }
   }
 
-  const q=k=>(counts[k]||0)/Math.max(total,1);
+  function dominant(rect){
+    const count={K:0,R:0,W:0,B:0,G:0,Y:0,O:0};
+    let n=0;
+    const [x0,y0,x1,y1]=rect;
 
-  // Pattern molto distintivi prima di quelli generici.
-  if(q('B')>.38&&q('W')>.15&&q('R')<.05&&q('Y')<.08)return'SCOZIA';
-  if(q('K')>.12&&q('R')>.15&&q('Y')>.12&&q('B')<.05&&q('G')<.05)return'GERMANIA';
+    for(let y=y0;y<y1;y+=3){
+      for(let x=x0;x<x1;x+=3){
+        // Ignora gli angoli esterni al disco.
+        const dx=x-150,dy=y-150;
+        if(dx*dx+dy*dy>116*116)continue;
 
-  if(q('R')>.30&&q('W')>.07&&q('B')<.05&&q('G')<.05&&q('Y')<.08)return'DANIMARCA';
-  if(q('W')>.32&&q('R')>.10&&q('B')<.08&&q('G')<.05)return'INGHILTERRA';
+        count[colorAt(x,y)]++;
+        n++;
+      }
+    }
 
-  if(q('B')>.12&&q('W')>.12&&q('R')>.10&&q('G')<.06&&q('Y')<.08)return'FRANCIA';
-  if(q('G')>.10&&q('W')>.10&&q('R')>.10&&q('B')<.07)return'ITALIA';
-  if(q('R')>.10&&q('W')>.10&&q('B')>.10&&q('G')<.05)return'PAESI BASSI';
-  if(q('K')>.10&&q('Y')>.10&&q('R')>.10&&q('B')<.05)return'BELGIO';
-  if(q('R')>.20&&q('Y')>.10&&q('B')<.05&&q('G')<.05)return'SPAGNA';
-  if(q('G')>.16&&q('Y')>.10&&q('B')>.015)return'BRASILE';
-  if(q('B')>.18&&q('W')>.18&&q('R')<.05&&q('Y')<.08)return'ARGENTINA';
+    let best='O',bestN=-1;
+    for(const k of ['K','R','W','B','G','Y']){
+      if(count[k]>bestN){best=k;bestN=count[k]}
+    }
+    return{color:best,ratio:bestN/Math.max(1,n),count,n};
+  }
 
-  // Se non siamo sicuri, non inventare una nazionalità.
+  // Campioni nelle bande verticali.
+  const left  =dominant([45,65,120,235]);
+  const midV  =dominant([120,65,180,235]);
+  const right =dominant([180,65,255,235]);
+
+  // Campioni nelle bande orizzontali.
+  const top   =dominant([55,45,245,120]);
+  const midH  =dominant([55,120,245,180]);
+  const bottom=dominant([55,180,245,255]);
+
+  // Percentuali globali nel cuore del disco.
+  const global=dominant([40,40,260,260]).count;
+  const globalN=Object.values(global).reduce((a,b)=>a+b,0)||1;
+  const q=k=>(global[k]||0)/globalN;
+
+  /*
+    CLASSIFICAZIONE PER STRUTTURA.
+    È molto più stabile del solo conteggio colori.
+  */
+
+  // GERMANIA: tre bande orizzontali nero / rosso / giallo.
+  if(
+    top.color==='K' &&
+    midH.color==='R' &&
+    bottom.color==='Y'
+  ) return 'GERMANIA';
+
+  // SCOZIA: blu dominante con croce diagonale bianca.
+  // Sul crop i tre terzi sono comunque prevalentemente blu.
+  if(
+    q('B')>.48 &&
+    q('W')>.16 &&
+    q('R')<.04 &&
+    q('Y')<.05
+  ) return 'SCOZIA';
+
+  // FRANCIA: bande verticali blu / bianco / rosso.
+  if(left.color==='B'&&midV.color==='W'&&right.color==='R')return'FRANCIA';
+
+  // ITALIA: bande verticali verde / bianco / rosso.
+  if(left.color==='G'&&midV.color==='W'&&right.color==='R')return'ITALIA';
+
+  // BELGIO: bande verticali nero / giallo / rosso.
+  if(left.color==='K'&&midV.color==='Y'&&right.color==='R')return'BELGIO';
+
+  // PAESI BASSI: rosso / bianco / blu.
+  if(top.color==='R'&&midH.color==='W'&&bottom.color==='B')return'PAESI BASSI';
+
+  // ARGENTINA: azzurro/blu / bianco / azzurro/blu.
+  if(top.color==='B'&&midH.color==='W'&&bottom.color==='B'&&q('R')<.05)return'ARGENTINA';
+
+  // SPAGNA: rosso / giallo / rosso.
+  if(top.color==='R'&&midH.color==='Y'&&bottom.color==='R')return'SPAGNA';
+
+  // DANIMARCA: rosso dominante con bianco significativo.
+  if(q('R')>.48&&q('W')>.08&&q('B')<.04&&q('G')<.04&&q('Y')<.06)return'DANIMARCA';
+
+  // INGHILTERRA: bianco dominante + croce rossa.
+  if(q('W')>.48&&q('R')>.10&&q('B')<.05&&q('G')<.05)return'INGHILTERRA';
+
+  // BRASILE: verde e giallo con una componente blu centrale.
+  if(q('G')>.20&&q('Y')>.12&&q('B')>.015)return'BRASILE';
+
+  // Fallback specifici sulle proporzioni, utili con compressione JPEG.
+  if(q('K')>.14&&q('R')>.25&&q('Y')>.12&&q('B')<.03)return'GERMANIA';
+  if(q('B')>.45&&q('W')>.12&&q('R')<.04)return'SCOZIA';
+
+  // Mai assegnare una nazione se il pattern non è abbastanza chiaro.
   return '';
 }
 
@@ -1140,7 +1227,27 @@ async function processCard(){
     $('processCardBtn').disabled=false;
   }
 }
-function fillImport(p){$('iFirstName').value=upper(p.first);$('iLastName').value=upper(p.last);$('iTeam').value=upper(p.team);$('iNumber').value=p.number||'';$('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=(p.foot==='SX'||p.foot==='DX')?p.foot:'';$('iBirthYear').value=p.year||'';$('iNationality').value=sanitizeNationalityInput(p.nationality||'');$('iStrengths').value=(p.strengths||[]).map(upper).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).map(upper).join(', ')}
+function fillImport(p){
+  $('iFirstName').value=upper(p.first);
+  $('iLastName').value=upper(p.last);
+  $('iTeam').value=upper(p.team);
+  $('iNumber').value=p.number||'';
+  $('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'';
+  $('iPosition').value='';
+  $('iHeight').value=p.height||'';
+
+  const foot=(p.foot==='SX'||p.foot==='DX')?p.foot:'';
+  $('iFoot').value=foot;
+
+  $('iBirthYear').value=p.year||'';
+
+  const nation=sanitizeNationalityInput(p.nationality||'');
+  $('iNationality').value=nation;
+  updateNationalityFlagPreview($('iNationality'));
+
+  $('iStrengths').value=(p.strengths||[]).map(upper).join(', ');
+  $('iWeaknesses').value=(p.weaknesses||[]).map(upper).join(', ');
+}
 
 
 async function archiveImportedPlayer(){
