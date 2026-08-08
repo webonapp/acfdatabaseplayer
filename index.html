@@ -1,6 +1,38 @@
 <!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#351463"><title>Player Analysis Database</title><link rel="stylesheet" href="styles.css"><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script></head>
 <body>
+
+<div id="authGate" class="auth-gate">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div>
+        <div class="auth-brand-title">PLAYER<br>DATABASE</div>
+        <div class="auth-brand-sub">ACCESSO RISERVATO</div>
+      </div>
+      <img src="assets/fiorentina-logo.webp" alt="Fiorentina">
+    </div>
+
+    <form id="loginForm" class="auth-form">
+      <div class="auth-heading">LOGIN</div>
+      <div class="auth-copy">Accedi con l'account autorizzato per consultare e modificare l'archivio.</div>
+
+      <label>EMAIL</label>
+      <input id="loginEmail" type="email" autocomplete="username" required placeholder="nome@email.it">
+
+      <label>PASSWORD</label>
+      <div class="password-wrap">
+        <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••">
+        <button id="togglePassword" type="button" aria-label="Mostra password">MOSTRA</button>
+      </div>
+
+      <button id="loginBtn" class="primary auth-submit" type="submit">ACCEDI</button>
+      <div id="loginError" class="auth-error hidden"></div>
+    </form>
+
+    <div class="auth-security">ACCESSO PROTETTO TRAMITE SUPABASE AUTH</div>
+  </div>
+</div>
+
 <div id="setupBanner" class="setup-banner hidden">SUPABASE NON È CONFIGURATO.</div>
 <div class="shell">
 <aside class="sidebar" id="sidebar">
@@ -14,6 +46,17 @@
     <button data-view="settings"><span class="icon">⚙</span><span>IMPOSTAZIONI</span></button>
   </nav>
   <div class="sidebar-user"><div class="avatar">AT</div><span>AT - Andrea Tordi</span></div>
+
+    <div class="side-account">
+      <div class="side-account-user">
+        <div class="side-avatar">AT</div>
+        <div>
+          <div class="side-account-name">AT - Andrea Tordi</div>
+          <div id="sideAccountEmail" class="side-account-email"></div>
+        </div>
+      </div>
+      <button id="logoutBtn" class="logout-btn" type="button">ESCI</button>
+    </div>
 </aside>
 <main class="main">
 

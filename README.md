@@ -23,3 +23,18 @@ Per aggiornare GitHub Pages, sostituisci i file del repository con quelli di que
 - OCR ricalibrato per il template fisso: zone precise e segmentazione per colore, senza correzione linguistica.
 - Drag & drop diretto nella dashboard: apre il controllo dati e avvia automaticamente la lettura.
 - Menu nazionalità completo con bandiere emoji, senza file esterno.
+
+
+## V10 - Login email + password
+
+La web app ora richiede obbligatoriamente una sessione Supabase Auth.
+
+Configurazione Supabase consigliata:
+1. Authentication > Providers > Email: abilita Email provider.
+2. Disabilita Anonymous Sign-Ins.
+3. Authentication > Users: crea manualmente l'utente autorizzato con email e password.
+4. Mantieni le policy RLS per il ruolo `authenticated`.
+5. Non inserire password nel codice, su GitHub o in `config.js`.
+
+Il frontend usa `supabase.auth.signInWithPassword()`.
+La sessione viene conservata dal client Supabase nel browser e il logout usa `supabase.auth.signOut()`.

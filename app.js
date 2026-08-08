@@ -205,8 +205,12 @@ async function processCard(){
 }
 function fillImport(p){$('iFirstName').value=p.first||'';$('iLastName').value=p.last||'';$('iTeam').value=p.team||'';$('iNumber').value=p.number||'';$('iRole').value=['DIFENSORE','CENTROCAMPISTA','ATTACCANTE'].includes(p.role)?p.role:'ATTACCANTE';$('iPosition').value='';$('iHeight').value=p.height||'';$('iFoot').value=p.foot==='SX'?'SX':'DX';$('iBirthYear').value=p.year||'';$('iNationality').value=p.nationality||'';$('iStrengths').value=(p.strengths||[]).join(', ');$('iWeaknesses').value=(p.weaknesses||[]).join(', ')}
 async function ensureWriteSession(){
- const {data:{session},error:getErr}=await db.auth.getSession();if(getErr)throw getErr;if(session)return session;
- const {data,error}=await db.auth.signInAnonymously();if(error)throw new Error('ARCHIVIAZIONE BLOCCATA DA SUPABASE: abilita Authentication → Providers → Anonymous Sign-Ins, poi riprova. Dettaglio: '+error.message);return data.session;
+ if(!db)throw new Error('Supabase non configurato.');
+ const {data,error}=await db.auth.getSession();
+ if(error)throw error;
+ if(!data.session)throw new Error('Sessione scaduta. Effettua nuovamente il login.');
+ currentSession=data.session;
+ return data.session;
 }
 async function archiveImportedPlayer(){
  if(!db){alert('Supabase non configurato.');return;}
@@ -277,4 +281,33 @@ async function archiveImportedPlayer(){
    if(btn){btn.disabled=false;btn.textContent=oldText;}
  }
 }
-$('importReview').addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();await archiveImportedPlayer();});populateCountrySelects();loadAll().catch(e=>{console.error(e);alert(e.message)});
+$('importReview').addEventListener('submit',async e=>{e.preventDefault();e.stopPropagation();await archiveImportedPlayer();});populateCountrySelects();
+
+$('loginForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const btn=$('loginBtn');
+  const email=$('loginEmail').value.trim();
+  const password=$('loginPassword').value;
+  $('loginError').classList.add('hidden');
+  btn.disabled=true;btn.textContent='ACCESSO...';
+  try{
+    const session=await loginWithPassword(email,password);
+    hideLogin(session);
+    $('loginPassword').value='';
+    await loadAll();
+  }catch(err){
+    console.error(err);
+    showLogin(err?.message||'Email o password non corretti.');
+  }finally{
+    btn.disabled=false;btn.textContent='ACCEDI';
+  }
+});
+$('togglePassword').addEventListener('click',()=>{
+  const input=$('loginPassword');
+  const visible=input.type==='text';
+  input.type=visible?'password':'text';
+  $('togglePassword').textContent=visible?'MOSTRA':'NASCONDI';
+});
+$('logoutBtn')?.addEventListener('click',logout);
+
+initializeAuth().catch(e=>{console.error(e);showLogin(e.message)});
