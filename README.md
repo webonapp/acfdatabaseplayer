@@ -465,3 +465,11 @@ Migliorie:
 - Numero maglia: multi-scale, PSM multipli e voto forte sui numeri a due cifre.
 - Punti di forza/deboli: segmentazione per righe migliorata, più preprocessing, recupero prima lettera e deduplicazione.
 - Bandiera: crop più stretto, eliminazione del bordo/ombra/fascia laterale e maschera circolare interna prima della classificazione.
+
+## V40 - Batch Fix + Fast Precision
+- Fix multi-card: un solo worker OCR condiviso per tutto il batch.
+- Elaborazione sequenziale con rilascio del thread tra le card per evitare freeze.
+- Supporto fino a 25 card.
+- Numero maglia migliorato, incluso caso 8 vs 3.
+- Punti di forza/deboli con margini orizzontali più larghi per non perdere prime/ultime lettere.
+- Ridotti i passaggi OCR ridondanti per aumentare la velocità.

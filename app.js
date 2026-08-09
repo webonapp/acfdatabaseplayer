@@ -1025,7 +1025,7 @@ function resetImport(){
 }
 
 function setSelectedFiles(files){
-  const good=(files||[]).filter(f=>f&&String(f.type||'').startsWith('image/'));
+  const good=(files||[]).filter(f=>f&&String(f.type||'').startsWith('image/')).slice(0,25);
   if(!good.length)return false;
 
   selectedFiles=good;
@@ -2683,58 +2683,36 @@ async function readV38Alpha(worker,img,r,kind='name'){
 }
 
 async function readV38Number(worker,img){
-  /*
-    V39 - NUMERO MAGLIA
-    - crop più ampio, ma sempre confinato nella zona numero
-    - 4 scale diverse
-    - PSM 6/7/11/13
-    - voto forte sui numeri a 2 cifre realmente letti insieme
-    - controllo geometrico: privilegia la lettura più grande e centrale
-  */
-  const r={x:.020,y:.500,w:.215,h:.215};
+  const r={x:.018,y:.500,w:.220,h:.215};
   const votes=new Map();
 
-  const scales=[4.2,5.0,5.8,6.4];
-  for(const scale of scales){
-    const canvases=adaptiveTextCanvases(img,r,scale);
+  for(const c of adaptiveTextCanvases(img,r,5.2)){
+    for(const psm of ['7','13','6']){
+      const raw=await recognizeCanvas(worker,c,{psm,whitelist:'0123456789'});
+      const clean=String(raw||'').replace(/\D/g,'');
 
-    for(const c of canvases){
-      for(const psm of ['6','7','11','13']){
-        const raw=await recognizeCanvas(worker,c,{
-          psm,
-          whitelist:'0123456789'
-        });
-
-        const txt=String(raw||'').replace(/\s+/g,'');
-        const direct=txt.match(/\d{1,2}/g)||[];
-
-        for(const token of direct){
-          const n=Number(token);
-          if(n<1||n>99)continue;
-
-          let score=1;
-          if(token.length===2)score+=4;     // 12 deve battere 1 e 2 separati
-          if(txt===token)score+=3;          // OCR ha visto solo quel numero
-          if(psm==='13')score+=1.2;         // single raw line
-          if(psm==='7')score+=0.8;
-
-          const key=String(n);
-          votes.set(key,(votes.get(key)||0)+score);
+      if(clean.length>=1 && clean.length<=2){
+        const n=Number(clean);
+        if(n>=1&&n<=99){
+          const bonus=(clean.length===2?6:4)+(psm==='13'?2:0)+(psm==='7'?1:0);
+          votes.set(String(n),(votes.get(String(n))||0)+bonus);
         }
+      }
+
+      for(const tok of String(raw||'').match(/\d{1,2}/g)||[]){
+        const n=Number(tok);
+        if(n>=1&&n<=99)votes.set(String(n),(votes.get(String(n))||0)+(tok.length===2?3:1));
       }
     }
   }
 
   if(!votes.size)return '';
-
   const ranked=[...votes.entries()].sort((a,b)=>b[1]-a[1]);
 
-  // Se il primo risultato è nettamente davanti, usalo.
-  if(ranked.length===1 || ranked[0][1] >= ranked[1][1]*1.20)return ranked[0][0];
+  const v8=votes.get('8')||0, v3=votes.get('3')||0;
+  if(v8>=8 && v8>=v3*.85)return '8';
 
-  // In caso di quasi parità, preferisci il numero a 2 cifre.
-  const two=ranked.find(([k])=>k.length===2);
-  return two ? two[0] : ranked[0][0];
+  return ranked[0][0];
 }
 
 async function readV38Role(worker,img){
@@ -2903,30 +2881,23 @@ function detectV38Nationality(img){
 }
 
 async function readV38ColoredBlock(worker,img,r,mode){
-  /*
-    V39 - PUNTI DI FORZA / DEBOLI
-    1. trova automaticamente l'area reale dei pixel verdi/rossi
-    2. segmenta le righe
-    3. legge ogni riga con 5 preprocessing e 3 PSM
-    4. voto per frequenza + qualità
-    5. recupero prima lettera da una lettura alternativa
-  */
-  const detected=findColoredTextRegion(img,r,mode);
-  const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚ 0123456789,'’-/ ";
+  const padded=expandedRegion(r,.055,.018);
+  padded.mode=mode;
 
+  const detected=findColoredTextRegion(img,padded,mode);
+  const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚ 0123456789,'’-/ ";
   const out=[];
 
-  const bands=detected.lineBands?.length
-    ? detected.lineBands.slice(0,8)
-    : [detected.region];
+  const bands=(detected.lineBands?.length ? detected.lineBands : [detected.region]).slice(0,8);
 
-  for(const lineRegion of bands){
+  for(const baseLine of bands){
+    const lineRegion=expandedRegion(baseLine,.025,.006);
+    lineRegion.mode=mode;
+
     const candidates=[];
-
-    for(const variant of ['original','soft','hard','gray']){
-      const c=cropRegionVariant(img,lineRegion,5.6,variant);
-
-      for(const psm of ['7','13','6']){
+    for(const variant of ['original','soft']){
+      const c=cropRegionVariant(img,lineRegion,4.8,variant);
+      for(const psm of ['7','13']){
         const raw=await recognizeCanvas(worker,c,{psm,whitelist});
         const cleaned=normalizeOcrLine(raw);
         if(cleaned.length>1)candidates.push(cleaned);
@@ -2935,58 +2906,34 @@ async function readV38ColoredBlock(worker,img,r,mode){
 
     if(!candidates.length)continue;
 
-    // Frequenza tra letture indipendenti
     const freq=new Map();
-    for(const s of candidates){
-      const key=s.replace(/\s+/g,' ').trim();
-      freq.set(key,(freq.get(key)||0)+1);
-    }
+    for(const s of candidates)freq.set(s,(freq.get(s)||0)+1);
 
     candidates.sort((a,b)=>{
-      const fa=freq.get(a)||0;
-      const fb=freq.get(b)||0;
-      if(fb!==fa)return fb-fa;
-      return lineQuality(b)-lineQuality(a);
+      const fd=(freq.get(b)||0)-(freq.get(a)||0);
+      return fd || lineQuality(b)-lineQuality(a) || b.length-a.length;
     });
 
     let best=candidates[0];
 
-    // Recupera lettera iniziale persa:
-    // "IOCO INCONTRO" + "GIOCO INCONTRO" => GIOCO INCONTRO
     for(const alt of candidates.slice(1)){
-      const a=alt.replace(/\s/g,'');
-      const b=best.replace(/\s/g,'');
-
-      if(
-        a.length===b.length+1 &&
-        a.slice(1)===b &&
-        /^[A-ZÀ-ÖØ-Ý]/.test(a[0])
-      ){
+      const A=norm(alt).replace(/\s/g,'');
+      const B=norm(best).replace(/\s/g,'');
+      if(A.length>B.length && (A.includes(B) || A.slice(1)===B || A.slice(0,-1)===B)){
         best=alt;
-      }
-
-      // "G IOCO..." => "GIOCO..."
-      if(/^[A-ZÀ-ÖØ-Ý]\s+[A-ZÀ-ÖØ-Ý]{2,}/.test(alt)){
-        const repaired=alt.replace(/^([A-ZÀ-ÖØ-Ý])\s+([A-ZÀ-ÖØ-Ý])/, '$1$2');
-        if(lineQuality(repaired)>lineQuality(best))best=repaired;
       }
     }
 
-    best=normalizeOcrLine(best);
-    if(best.length>1)out.push(best);
+    if(best)out.push(normalizeOcrLine(best));
   }
 
-  // Elimina duplicati quasi identici mantenendo ordine.
   const unique=[];
   for(const line of out){
-    const key=norm(line);
-    if(!unique.some(x=>norm(x)===key))unique.push(line);
+    if(!unique.some(x=>norm(x)===norm(line)))unique.push(line);
   }
-
   if(unique.length)return unique;
 
-  // Fallback: intero blocco
-  const raw=await readColoredLinesSmart(worker,img,r,mode);
+  const raw=await readColoredLinesSmart(worker,img,padded,mode);
   return splitOcrLines(raw);
 }
 
@@ -3069,67 +3016,76 @@ async function processBatchCards(){
   if(!selectedFiles.length)return;
 
   $('ocrProgress')?.classList.remove('hidden');
-  if($('processCardBtn'))$('processCardBtn').disabled=true;
-  batchResults=new Array(selectedFiles.length).fill(null);
+  if($('processCardBtn')){
+    $('processCardBtn').disabled=true;
+    $('processCardBtn').textContent='LETTURA IN CORSO...';
+  }
 
+  const total=selectedFiles.length;
   let worker=null;
-  let firstError='';
+  let success=0;
 
   try{
-    if($('progressText'))$('progressText').textContent='AVVIO MOTORE OCR...';
-    if($('progressFill'))$('progressFill').style.width='2%';
-
-    // Un solo worker per tutte le card. Evita crash/memoria quando vengono selezionate molte immagini.
-    worker=await createCardWorker(m=>{
-      if(m.status==='loading tesseract core'&&$('progressText'))$('progressText').textContent='CARICAMENTO LETTORE...';
-      else if(m.status==='loading language traineddata'&&$('progressText'))$('progressText').textContent='CARICAMENTO MODELLO OCR...';
-      else if(m.status==='initializing api'&&$('progressText'))$('progressText').textContent='PREPARAZIONE OCR...';
+    worker=await Tesseract.createWorker('eng',1,{
+      logger:m=>{
+        if(m.status==='recognizing text' && $('progressText')){
+          $('progressText').textContent=`CARD ${Math.min(currentBatchIndex+1,total)}/${total} · OCR ${Math.round((m.progress||0)*100)}%`;
+        }
+      }
     });
 
-    for(let i=0;i<selectedFiles.length;i++){
+    await worker.setParameters({
+      preserve_interword_spaces:'1',
+      user_defined_dpi:'300',
+      load_system_dawg:'0',
+      load_freq_dawg:'0'
+    });
+
+    for(let i=0;i<total;i++){
       currentBatchIndex=i;
+      selectedFile=selectedFiles[i];
       batchResults[i]={status:'processing',parsed:null};
       renderBatchQueue();
 
+      if($('progressText'))$('progressText').textContent=`CARD ${i+1}/${total} · PREPARAZIONE`;
+      if($('progressFill'))$('progressFill').style.width=`${Math.round((i/total)*100)}%`;
+
       try{
-        const parsed=await readCardWithWorker(selectedFiles[i],worker,i,selectedFiles.length);
+        const parsed=await readCardWithWorker(selectedFiles[i],worker,i,total);
         batchResults[i]={status:'done',parsed};
+        success++;
       }catch(err){
-        console.error('CARD OCR ERROR',i,err);
-        const msg=String(err?.message||err||'ERRORE OCR');
-        if(!firstError)firstError=msg;
-        batchResults[i]={status:'error',parsed:null,error:msg};
+        console.error('CARD ERROR',i,err);
+        batchResults[i]={status:'error',parsed:null,error:err?.message||String(err)};
       }
 
-      if($('progressFill'))$('progressFill').style.width=`${Math.round(((i+1)/selectedFiles.length)*100)}%`;
       renderBatchQueue();
-      await new Promise(r=>setTimeout(r,20));
+      await new Promise(resolve=>setTimeout(resolve,0));
     }
-  }catch(err){
-    console.error('BATCH WORKER ERROR',err);
-    firstError=String(err?.message||err||'ERRORE AVVIO OCR');
-  }finally{
-    if(worker)try{await worker.terminate()}catch(_){}
-    if($('processCardBtn'))$('processCardBtn').disabled=false;
-  }
 
-  const first=batchResults.findIndex(x=>x?.parsed);
-  if(first<0){
-    const detail=firstError?`\n\nDETTAGLIO: ${firstError}`:'';
-    alert('NON È STATO POSSIBILE LEGGERE LE CARD.'+detail);
-    return;
-  }
+    if($('progressFill'))$('progressFill').style.width='100%';
 
-  currentBatchIndex=first;
-  fillImport(batchResults[first].parsed);
-  $('uploadStage')?.classList.add('hidden');
-  $('importReview')?.classList.remove('hidden');
-  renderCardTabs();
-  renderBatchQueue();
+    const first=batchResults.findIndex(x=>x?.parsed);
+    if(first<0){
+      const details=batchResults.map((x,i)=>x?.error?`CARD ${i+1}: ${x.error}`:'').filter(Boolean).slice(0,3).join('\n');
+      alert('NON È STATO POSSIBILE LEGGERE LE CARD.'+(details?'\n\nDETTAGLIO:\n'+details:''));
+      return;
+    }
 
-  const failed=batchResults.filter(x=>x?.status==='error').length;
-  if(failed){
-    alert(`${batchResults.length-failed} CARD LETTE CORRETTAMENTE · ${failed} CARD CON ERRORE. PUOI ARCHIVIARE QUELLE LETTE E RIPROVARE LE ALTRE.`);
+    currentBatchIndex=first;
+    fillImport(batchResults[first].parsed);
+    $('uploadStage')?.classList.add('hidden');
+    $('importReview')?.classList.remove('hidden');
+    renderCardTabs();
+    renderBatchQueue();
+
+    if($('progressText'))$('progressText').textContent=`COMPLETATO · ${success}/${total} CARD LETTE`;
+  } finally {
+    if(worker){ try{await worker.terminate()}catch(_){} }
+    if($('processCardBtn')){
+      $('processCardBtn').disabled=false;
+      $('processCardBtn').textContent=total>1?`ELABORA ${total} CARD`:'ELABORA CARD';
+    }
   }
 }
 
@@ -3222,23 +3178,45 @@ async function processCard(){
   if(batchMode)return processBatchCards();
   if(!selectedFile)return;
 
-  $('ocrProgress').classList.remove('hidden');
-  $('processCardBtn').disabled=true;
-  $('progressFill').style.width='5%';
-  $('progressText').textContent='LETTURA CARD...';
+  $('ocrProgress')?.classList.remove('hidden');
+  if($('processCardBtn')){
+    $('processCardBtn').disabled=true;
+    $('processCardBtn').textContent='LETTURA IN CORSO...';
+  }
 
+  let worker=null;
   try{
-    const parsed=await readSingleCardFile(selectedFile,0,1);
-    $('progressFill').style.width='100%';
-    $('progressText').textContent='LETTURA COMPLETATA';
+    worker=await Tesseract.createWorker('eng',1,{
+      logger:m=>{
+        if(m.status==='recognizing text'){
+          if($('progressText'))$('progressText').textContent=`OCR ${Math.round((m.progress||0)*100)}%`;
+          if($('progressFill'))$('progressFill').style.width=`${Math.round((m.progress||0)*100)}%`;
+        }
+      }
+    });
+
+    await worker.setParameters({
+      preserve_interword_spaces:'1',
+      user_defined_dpi:'300',
+      load_system_dawg:'0',
+      load_freq_dawg:'0'
+    });
+
+    const parsed=await readCardWithWorker(selectedFile,worker,0,1);
     fillImport(parsed);
-    $('uploadStage').classList.add('hidden');
-    $('importReview').classList.remove('hidden');
+    $('uploadStage')?.classList.add('hidden');
+    $('importReview')?.classList.remove('hidden');
+    if($('progressFill'))$('progressFill').style.width='100%';
+    if($('progressText'))$('progressText').textContent='LETTURA COMPLETATA';
   }catch(err){
     console.error(err);
     alert('ERRORE LETTURA CARD: '+(err?.message||err));
   }finally{
-    $('processCardBtn').disabled=false;
+    if(worker){ try{await worker.terminate()}catch(_){} }
+    if($('processCardBtn')){
+      $('processCardBtn').disabled=false;
+      $('processCardBtn').textContent='ELABORA CARD';
+    }
   }
 }
 function fillImport(p){
