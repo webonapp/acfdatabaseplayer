@@ -2411,8 +2411,8 @@ function detectFlagNationalityInRegion(img,r){
 const CARD_V37={
   // V38: regioni strette ricavate dal layout standard 2048×1152.
   // Evitano foto, campo, watermark, etichette e fascia squadra.
-  first:      {x:.070,y:.365,w:.165,h:.050},
-  surname:    {x:.045,y:.405,w:.195,h:.065},
+  first:      {x:.045,y:.340,w:.205,h:.072},
+  surname:    {x:.020,y:.388,w:.235,h:.088},
   team:       {x:.070,y:.463,w:.165,h:.045},
   number:     {x:.035,y:.535,w:.190,h:.170},
   flag:       {x:.070,y:.745,w:.105,h:.165},
@@ -2675,6 +2675,102 @@ function v38BestAlpha(candidates,kind='name'){
   });
 
   return cleanFieldText(cleaned[0]);
+}
+
+
+function v43NameCleanup(s){
+  return upper(String(s||''))
+    .replace(/[|[\]{}<>_=~^]/g,' ')
+    .replace(/[^A-ZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚÂÊÔÃÕ'’.\- ]/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+function v43NameScore(s){
+  const t=v43NameCleanup(s);
+  if(!t)return -999;
+
+  const letters=(t.match(/[A-ZÀ-ÖØ-Ý]/g)||[]).length;
+  const weird=(t.match(/[^A-ZÀ-ÖØ-Ý'’.\- ]/g)||[]).length;
+  const words=t.split(/\s+/).filter(Boolean).length;
+
+  let score=letters*3 + words*.5 - weird*10;
+  if(letters>=3 && letters<=30)score+=6;
+  if(words<=3)score+=2;
+  return score;
+}
+
+async function readV43Identity(worker,img,r){
+  /*
+    V43 - NOME / COGNOME
+    Il bug nasceva da ROI troppo strette: la prima lettera cadeva
+    vicino al bordo sinistro e veniva tagliata prima dell'OCR.
+
+    Ora:
+    - ROI molto più larga a sinistra e destra
+    - 3 scale
+    - originale + gray
+    - PSM 7/13
+    - voto tra letture
+    - preferenza automatica per la variante più lunga quando recupera
+      1-3 lettere iniziali/finali rispetto ad un'altra lettura.
+  */
+  const rr=expandedRegion(r,.035,.012);
+  const reads=[];
+
+  for(const scale of [4.8,5.6,6.4]){
+    for(const variant of ['original','gray']){
+      const c=cropRegionVariant(img,rr,scale,variant);
+
+      for(const psm of ['7','13']){
+        const raw=await recognizeCanvas(worker,c,{
+          psm,
+          whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚÂÊÔÃÕ'’.- "
+        });
+        const cleaned=v43NameCleanup(raw);
+        if(cleaned)reads.push(cleaned);
+      }
+    }
+  }
+
+  if(!reads.length)return '';
+
+  const freq=new Map();
+  for(const s of reads)freq.set(s,(freq.get(s)||0)+1);
+
+  reads.sort((a,b)=>{
+    const fa=freq.get(a)||0, fb=freq.get(b)||0;
+    if(fb!==fa)return fb-fa;
+    const sa=v43NameScore(a), sb=v43NameScore(b);
+    if(sb!==sa)return sb-sa;
+    return b.length-a.length;
+  });
+
+  let best=reads[0];
+
+  // Recupero prefissi/suffissi tagliati: es. STANTINOS -> KOSTANTINOS.
+  for(const alt of reads.slice(1)){
+    const A=norm(alt).replace(/\s/g,'');
+    const B=norm(best).replace(/\s/g,'');
+
+    if(A.length>B.length){
+      // current reading contained in longer alternative
+      if(A.includes(B)){
+        best=alt;
+        continue;
+      }
+
+      // recover up to 3 missing initial/final chars
+      for(let cut=1;cut<=3;cut++){
+        if(A.slice(cut)===B || A.slice(0,-cut)===B){
+          best=alt;
+          break;
+        }
+      }
+    }
+  }
+
+  return v43NameCleanup(best);
 }
 
 async function readV38Alpha(worker,img,r,kind='name'){
@@ -3122,10 +3218,10 @@ async function readCardWithWorker(file,worker,index=0,total=1){
   let step=0;
 
   progress('NOME',step++,steps);
-  const first=await readV38Alpha(worker,img,CARD_V37.first,'name');
+  const first=await readV43Identity(worker,img,CARD_V37.first);
 
   progress('COGNOME',step++,steps);
-  const last=await readV38Alpha(worker,img,CARD_V37.surname,'name');
+  const last=await readV43Identity(worker,img,CARD_V37.surname);
 
   progress('SQUADRA',step++,steps);
   const team=await readV38Alpha(worker,img,CARD_V37.team,'team');

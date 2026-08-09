@@ -486,3 +486,10 @@ Migliorie:
 - Bounding box calcolato sul testo reale e margini applicati solo dopo il filtraggio, quindi niente contaminazioni.
 - Lettura blocco + righe singole con confronto finale.
 - Mantiene X per rimuovere una card dal batch e batch condiviso V41.
+
+## V43 - Nome/Cognome Precision
+- ROI nome e cognome ampliate, soprattutto a sinistra.
+- OCR dedicato per identità con 3 scale, 2 varianti immagine e PSM 7/13.
+- Voto tra letture multiple.
+- Recupero automatico fino a 3 lettere iniziali/finali perse.
+- Esempio gestito: STANTINOS -> KOSTANTINOS, ODULIERAKIS -> KOULIERAKIS.
