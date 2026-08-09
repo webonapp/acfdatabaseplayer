@@ -2683,25 +2683,58 @@ async function readV38Alpha(worker,img,r,kind='name'){
 }
 
 async function readV38Number(worker,img){
-  const reads=[];
-  for(const c of adaptiveTextCanvases(img,CARD_V37.number,5.0)){
-    for(const psm of ['7','6','11','13']){
-      reads.push(await recognizeCanvas(worker,c,{psm,whitelist:'0123456789'}));
-    }
-  }
-
+  /*
+    V39 - NUMERO MAGLIA
+    - crop più ampio, ma sempre confinato nella zona numero
+    - 4 scale diverse
+    - PSM 6/7/11/13
+    - voto forte sui numeri a 2 cifre realmente letti insieme
+    - controllo geometrico: privilegia la lettura più grande e centrale
+  */
+  const r={x:.020,y:.500,w:.215,h:.215};
   const votes=new Map();
-  for(const raw of reads){
-    const matches=String(raw||'').match(/\d{1,2}/g)||[];
-    for(const x of matches){
-      const n=Number(x);
-      if(n>=1&&n<=99){
-        const key=String(n);
-        votes.set(key,(votes.get(key)||0)+(x.length===2?3:2));
+
+  const scales=[4.2,5.0,5.8,6.4];
+  for(const scale of scales){
+    const canvases=adaptiveTextCanvases(img,r,scale);
+
+    for(const c of canvases){
+      for(const psm of ['6','7','11','13']){
+        const raw=await recognizeCanvas(worker,c,{
+          psm,
+          whitelist:'0123456789'
+        });
+
+        const txt=String(raw||'').replace(/\s+/g,'');
+        const direct=txt.match(/\d{1,2}/g)||[];
+
+        for(const token of direct){
+          const n=Number(token);
+          if(n<1||n>99)continue;
+
+          let score=1;
+          if(token.length===2)score+=4;     // 12 deve battere 1 e 2 separati
+          if(txt===token)score+=3;          // OCR ha visto solo quel numero
+          if(psm==='13')score+=1.2;         // single raw line
+          if(psm==='7')score+=0.8;
+
+          const key=String(n);
+          votes.set(key,(votes.get(key)||0)+score);
+        }
       }
     }
   }
-  return votes.size ? [...votes].sort((a,b)=>b[1]-a[1])[0][0] : '';
+
+  if(!votes.size)return '';
+
+  const ranked=[...votes.entries()].sort((a,b)=>b[1]-a[1]);
+
+  // Se il primo risultato è nettamente davanti, usalo.
+  if(ranked.length===1 || ranked[0][1] >= ranked[1][1]*1.20)return ranked[0][0];
+
+  // In caso di quasi parità, preferisci il numero a 2 cifre.
+  const two=ranked.find(([k])=>k.length===2);
+  return two ? two[0] : ranked[0][0];
 }
 
 async function readV38Role(worker,img){
@@ -2806,61 +2839,153 @@ async function readV38BirthYear(worker,img){
 
 function detectV38Nationality(img){
   /*
-    La bandiera è sempre nello stesso cerchio.
-    Il classificatore riceve SOLO la bandiera, non la fascia laterale.
+    V39 - BANDIERA
+    Prima ritaglia SOLO il disco interno della bandiera.
+    Elimina:
+    - bordo bianco
+    - ombra
+    - colore della fascia laterale
+    Poi passa il risultato al classificatore esteso.
   */
-  const r={x:.075,y:.755,w:.095,h:.150};
-  const sx=Math.round(img.naturalWidth*r.x), sy=Math.round(img.naturalHeight*r.y);
-  const sw=Math.round(img.naturalWidth*r.w), sh=Math.round(img.naturalHeight*r.h);
+  const r={x:.077,y:.762,w:.090,h:.135};
 
+  const sx=Math.round(img.naturalWidth*r.x);
+  const sy=Math.round(img.naturalHeight*r.y);
+  const sw=Math.round(img.naturalWidth*r.w);
+  const sh=Math.round(img.naturalHeight*r.h);
+
+  const crop=document.createElement('canvas');
+  crop.width=260;
+  crop.height=260;
+  const cctx=crop.getContext('2d',{willReadFrequently:true});
+
+  // Fondo bianco
+  cctx.fillStyle='#fff';
+  cctx.fillRect(0,0,260,260);
+
+  // Disegna la bandiera leggermente più grande per escludere il bordo esterno
+  cctx.drawImage(img,sx,sy,sw,sh,-8,-8,276,276);
+
+  // Maschera circolare interna
+  const data=cctx.getImageData(0,0,260,260);
+  const px=data.data;
+  const cx=130,cy=130,rad=104;
+
+  for(let y=0;y<260;y++){
+    for(let x=0;x<260;x++){
+      const dx=x-cx,dy=y-cy;
+      if(dx*dx+dy*dy>rad*rad){
+        const i=(y*260+x)*4;
+        px[i]=px[i+1]=px[i+2]=255;
+        px[i+3]=255;
+      }
+    }
+  }
+  cctx.putImageData(data,0,0);
+
+  // Inserisci il disco pulito nella posizione attesa dal classificatore.
   const virtual=document.createElement('canvas');
   virtual.width=img.naturalWidth;
   virtual.height=img.naturalHeight;
-  const ctx=virtual.getContext('2d');
+  const vctx=virtual.getContext('2d');
+  vctx.fillStyle='#fff';
+  vctx.fillRect(0,0,virtual.width,virtual.height);
 
-  ctx.fillStyle='#fff';
-  ctx.fillRect(0,0,virtual.width,virtual.height);
-
-  // Posizione attesa dal classificatore storico, ma con crop V38 pulito.
   const tx=Math.round(virtual.width*.078);
   const ty=Math.round(virtual.height*.742);
   const tw=Math.round(virtual.width*.090);
   const th=Math.round(virtual.height*.166);
-  ctx.drawImage(img,sx,sy,sw,sh,tx,ty,tw,th);
 
-  return resolveNationality(detectFlagNationalityV32(virtual));
+  vctx.drawImage(crop,0,0,260,260,tx,ty,tw,th);
+
+  const detected=detectFlagNationalityV32(virtual);
+  return resolveNationality(detected);
 }
 
 async function readV38ColoredBlock(worker,img,r,mode){
+  /*
+    V39 - PUNTI DI FORZA / DEBOLI
+    1. trova automaticamente l'area reale dei pixel verdi/rossi
+    2. segmenta le righe
+    3. legge ogni riga con 5 preprocessing e 3 PSM
+    4. voto per frequenza + qualità
+    5. recupero prima lettera da una lettura alternativa
+  */
   const detected=findColoredTextRegion(img,r,mode);
   const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚ 0123456789,'’-/ ";
 
-  const lines=[];
-  for(const lineRegion of detected.lineBands.slice(0,6)){
+  const out=[];
+
+  const bands=detected.lineBands?.length
+    ? detected.lineBands.slice(0,8)
+    : [detected.region];
+
+  for(const lineRegion of bands){
     const candidates=[];
-    for(const strictness of ['original','soft','hard','gray']){
-      const c=cropRegionVariant(img,lineRegion,5.0,strictness);
-      for(const psm of ['7','13']){
-        candidates.push(await recognizeCanvas(worker,c,{psm,whitelist}));
+
+    for(const variant of ['original','soft','hard','gray']){
+      const c=cropRegionVariant(img,lineRegion,5.6,variant);
+
+      for(const psm of ['7','13','6']){
+        const raw=await recognizeCanvas(worker,c,{psm,whitelist});
+        const cleaned=normalizeOcrLine(raw);
+        if(cleaned.length>1)candidates.push(cleaned);
       }
     }
 
-    candidates
-      .map(normalizeOcrLine)
-      .filter(x=>x.length>1)
-      .sort((a,b)=>lineQuality(b)-lineQuality(a));
+    if(!candidates.length)continue;
 
-    const best=candidates
-      .map(normalizeOcrLine)
-      .filter(x=>x.length>1)
-      .sort((a,b)=>lineQuality(b)-lineQuality(a))[0];
+    // Frequenza tra letture indipendenti
+    const freq=new Map();
+    for(const s of candidates){
+      const key=s.replace(/\s+/g,' ').trim();
+      freq.set(key,(freq.get(key)||0)+1);
+    }
 
-    if(best)lines.push(best);
+    candidates.sort((a,b)=>{
+      const fa=freq.get(a)||0;
+      const fb=freq.get(b)||0;
+      if(fb!==fa)return fb-fa;
+      return lineQuality(b)-lineQuality(a);
+    });
+
+    let best=candidates[0];
+
+    // Recupera lettera iniziale persa:
+    // "IOCO INCONTRO" + "GIOCO INCONTRO" => GIOCO INCONTRO
+    for(const alt of candidates.slice(1)){
+      const a=alt.replace(/\s/g,'');
+      const b=best.replace(/\s/g,'');
+
+      if(
+        a.length===b.length+1 &&
+        a.slice(1)===b &&
+        /^[A-ZÀ-ÖØ-Ý]/.test(a[0])
+      ){
+        best=alt;
+      }
+
+      // "G IOCO..." => "GIOCO..."
+      if(/^[A-ZÀ-ÖØ-Ý]\s+[A-ZÀ-ÖØ-Ý]{2,}/.test(alt)){
+        const repaired=alt.replace(/^([A-ZÀ-ÖØ-Ý])\s+([A-ZÀ-ÖØ-Ý])/, '$1$2');
+        if(lineQuality(repaired)>lineQuality(best))best=repaired;
+      }
+    }
+
+    best=normalizeOcrLine(best);
+    if(best.length>1)out.push(best);
   }
 
-  if(lines.length)return lines;
+  // Elimina duplicati quasi identici mantenendo ordine.
+  const unique=[];
+  for(const line of out){
+    const key=norm(line);
+    if(!unique.some(x=>norm(x)===key))unique.push(line);
+  }
 
-  // fallback intero blocco
+  if(unique.length)return unique;
+
+  // Fallback: intero blocco
   const raw=await readColoredLinesSmart(worker,img,r,mode);
   return splitOcrLines(raw);
 }

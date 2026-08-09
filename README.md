@@ -459,3 +459,9 @@ Migliorie:
 - Età/anno con controllo di plausibilità.
 - Punti di forza/deboli letti riga per riga usando prima la maschera cromatica verde/rossa.
 - Nessun default automatico ATTACCANTE/DX in caso di lettura incerta.
+
+
+## V39 - Precision Plus
+- Numero maglia: multi-scale, PSM multipli e voto forte sui numeri a due cifre.
+- Punti di forza/deboli: segmentazione per righe migliorata, più preprocessing, recupero prima lettera e deduplicazione.
+- Bandiera: crop più stretto, eliminazione del bordo/ombra/fascia laterale e maschera circolare interna prima della classificazione.
