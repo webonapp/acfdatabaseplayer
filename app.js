@@ -305,6 +305,100 @@ $('fNation')?.addEventListener('input',renderDashboard);$('searchBtn').onclick=r
 function openModal(id){$(id).classList.add('open')}function closeModal(id){$(id).classList.remove('open')}$('manualTeamBtn').onclick=()=>openNewTeamModal();
 $('teamForm').onsubmit=async e=>{e.preventDefault();if(!db)return alert('SUPABASE NON CONFIGURATO.');try{await ensureWriteSession();const id=$('teamEditId').value;const payload={name:upper($('teamName').value),country:upper($('teamCountry').value),competition:upper($('teamCompetition').value)};if(!payload.name)throw new Error('IL NOME DELLA SQUADRA È OBBLIGATORIO.');const duplicate=teams.find(t=>norm(t.name)===norm(payload.name)&&String(t.id)!==String(id||''));if(duplicate)throw new Error('ESISTE GIÀ UNA SQUADRA CON QUESTO NOME.');if(id){const{error}=await db.from('teams').update(payload).eq('id',id);if(error)throw error}else{const{error}=await db.from('teams').insert(payload);if(error)throw error}$('teamForm').reset();$('teamEditId').value='';closeModal('teamModal');await loadAll();showView('teams')}catch(err){console.error(err);alert(err?.message||'ERRORE DURANTE IL SALVATAGGIO DELLA SQUADRA.')}};
 function normalizeRole(v){const n=norm(v);if(n.includes('dif')||n.includes('terz')||n.includes('bracc'))return'DIFENSORE';if(n.includes('centr')||n.includes('mezz')||n.includes('med')||n.includes('trequart'))return'CENTROCAMPISTA';return'ATTACCANTE'}
+
+let activeTeamPlayersId=null;
+
+function getSortedTeamPlayers(teamId){
+  const q=norm($('teamPlayersSearch')?.value||'');
+  const mode=$('teamPlayersSort')?.value||'alphabetical';
+  const rr={DIFENSORE:1,CENTROCAMPISTA:2,ATTACCANTE:3};
+
+  const list=players.filter(p=>{
+    if(String(p.team_id)!==String(teamId))return false;
+    if(!q)return true;
+    return norm([
+      p.first_name,p.last_name,p.role,p.position,p.foot,p.nationality,p.birth_year,
+      ...tags(p.strengths),...tags(p.weaknesses)
+    ].join(' ')).includes(q);
+  });
+
+  list.sort((a,b)=>{
+    if(mode==='age')
+      return age(a.birth_year)-age(b.birth_year) || String(a.last_name||'').localeCompare(String(b.last_name||''));
+    if(mode==='foot')
+      return String(a.foot||'').localeCompare(String(b.foot||'')) || String(a.last_name||'').localeCompare(String(b.last_name||''));
+    if(mode==='role')
+      return (rr[String(a.role||'').toUpperCase()]||9)-(rr[String(b.role||'').toUpperCase()]||9) ||
+        String(a.last_name||'').localeCompare(String(b.last_name||''));
+    if(mode==='nationality')
+      return String(a.nationality||'').localeCompare(String(b.nationality||'')) ||
+        String(a.last_name||'').localeCompare(String(b.last_name||''));
+    return `${a.last_name||''} ${a.first_name||''}`.localeCompare(`${b.last_name||''} ${b.first_name||''}`);
+  });
+
+  return list;
+}
+
+function renderTeamPlayersList(){
+  if(!activeTeamPlayersId)return;
+
+  const team=teams.find(t=>String(t.id)===String(activeTeamPlayersId));
+  const list=getSortedTeamPlayers(activeTeamPlayersId);
+
+  $('teamPlayersTitle').textContent=upper(team?.name||'GIOCATORI SQUADRA');
+  $('teamPlayersSubtitle').textContent=`${list.length} GIOCATOR${list.length===1?'E':'I'} ARCHIVIAT${list.length===1?'O':'I'}`;
+
+  $('teamPlayersList').innerHTML=list.map(p=>`
+    <article class="team-player-row">
+      <div class="team-player-main">
+        <div class="pface">${esc(initials(p))}</div>
+        <div class="team-player-info">
+          <h3>${esc(p.last_name||'')} ${esc(p.first_name||'')}</h3>
+          <div class="sub">${esc(p.role||'-')} · ${age(p.birth_year)} ANNI · ${esc(p.foot||'-')} · ${esc(p.nationality||'-')}</div>
+        </div>
+      </div>
+
+      <div class="team-player-strengths">
+        ${tags(p.strengths).slice(0,4).map(s=>`<span class="chip">${esc(s)}</span>`).join('')}
+      </div>
+
+      <div class="team-player-actions">
+        <button class="secondary" onclick="closeModal('teamPlayersModal');editPlayer('${p.id}')">MODIFICA</button>
+        <button class="secondary" onclick="deleteTeamPlayer('${p.id}')">ELIMINA</button>
+      </div>
+    </article>
+  `).join('') || '<div class="team-players-empty">NESSUN GIOCATORE ARCHIVIATO PER QUESTA SQUADRA</div>';
+}
+
+window.openTeamPlayers=function(id){
+  const team=teams.find(t=>String(t.id)===String(id));
+  if(!team)return;
+
+  activeTeamPlayersId=id;
+  if($('teamPlayersSearch'))$('teamPlayersSearch').value='';
+  if($('teamPlayersSort'))$('teamPlayersSort').value='alphabetical';
+
+  renderTeamPlayersList();
+  openModal('teamPlayersModal');
+};
+
+window.deleteTeamPlayer=async function(id){
+  const p=players.find(x=>String(x.id)===String(id));
+  if(!p)return;
+  if(!confirm(`ELIMINARE ${upper(p.last_name||'')} ${upper(p.first_name||'')}?`))return;
+
+  try{
+    await ensureWriteSession();
+    const {error}=await db.from('players').delete().eq('id',id);
+    if(error)throw error;
+    await loadAll();
+    renderTeamPlayersList();
+  }catch(err){
+    console.error(err);
+    alert(err?.message||'ERRORE DURANTE L’ELIMINAZIONE DEL GIOCATORE.');
+  }
+};
+
 function openNewTeamModal(){$('teamForm').reset();$('teamEditId').value='';$('teamModalTitle').textContent='NUOVA SQUADRA';openModal('teamModal')}
 window.editTeam=id=>{const t=teams.find(x=>String(x.id)===String(id));if(!t)return;$('teamEditId').value=t.id;$('teamModalTitle').textContent='MODIFICA SQUADRA';$('teamName').value=upper(t.name||'');$('teamCountry').value=upper(t.country||'');$('teamCompetition').value=upper(t.competition||'');openModal('teamModal')};
 window.deleteTeam=async id=>{const t=teams.find(x=>String(x.id)===String(id));if(!t)return;const linked=players.filter(p=>String(p.team_id)===String(id));let msg=`ELIMINARE DEFINITIVAMENTE LA SQUADRA "${t.name}"?`;if(linked.length)msg+=`\n\nATTENZIONE: CI SONO ${linked.length} GIOCATORI ASSOCIATI.\nELIMINANDO LA SQUADRA VERRANNO ELIMINATI ANCHE TUTTI I GIOCATORI DELLA SQUADRA.`;if(!confirm(msg))return;try{await ensureWriteSession();if(linked.length){const{error:e1}=await db.from('players').delete().eq('team_id',id);if(e1)throw new Error('ERRORE ELIMINAZIONE GIOCATORI: '+e1.message)}const{error:e2}=await db.from('teams').delete().eq('id',id);if(e2)throw new Error('ERRORE ELIMINAZIONE SQUADRA: '+e2.message);await loadAll();showView('teams')}catch(err){console.error(err);alert(err?.message||'ERRORE DURANTE L’ELIMINAZIONE DELLA SQUADRA.')}};
@@ -2729,4 +2823,7 @@ function updateNationalityFlagPreview(input){
 
 populateCountrySearch();
 installNationalitySearchUX();
+$('teamPlayersSearch')?.addEventListener('input',renderTeamPlayersList);
+$('teamPlayersSort')?.addEventListener('change',renderTeamPlayersList);
+
 initializeAuth().catch(e=>{console.error(e);showLogin(e.message)});

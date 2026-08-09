@@ -413,3 +413,11 @@ ETÀ / ANNO
 
 NAZIONALITÀ
 - Il classificatore esteso della V33 viene mantenuto.
+
+
+## V36 - Vedi giocatori della squadra
+- Attivato il pulsante VEDI GIOCATORI nella sezione SQUADRE.
+- Si apre una finestra dedicata con tutti i giocatori già archiviati della squadra selezionata.
+- Ricerca interna per nome, ruolo, nazionalità e caratteristiche.
+- Ordinamento per alfabetico, età, piede, ruolo e nazionalità.
+- MODIFICA ed ELIMINA disponibili direttamente dalla lista.

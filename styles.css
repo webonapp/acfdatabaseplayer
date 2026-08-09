@@ -303,3 +303,72 @@ body.auth-locked{overflow:hidden}
   .player-list-actions{justify-content:stretch}
   .player-list-actions .secondary{flex:1}
 }
+
+
+/* ===== V36: VEDI GIOCATORI PER SINGOLA SQUADRA ===== */
+.team-players-sheet{
+  width:min(1180px,94vw);
+  max-height:88vh;
+  display:flex;
+  flex-direction:column;
+}
+.team-players-subtitle{
+  margin-top:4px;
+  font-size:12px;
+  color:#817b89;
+  font-weight:700;
+}
+.team-players-toolbar{
+  display:grid;
+  grid-template-columns:1fr 220px;
+  gap:12px;
+  padding:0 0 16px;
+}
+.team-players-toolbar input,
+.team-players-toolbar select{
+  width:100%;
+  min-height:44px;
+}
+.team-players-list{
+  border:1px solid var(--line);
+  border-radius:14px;
+  overflow:auto;
+  background:#fff;
+}
+.team-player-row{
+  display:grid;
+  grid-template-columns:minmax(280px,1fr) minmax(320px,1.25fr) 250px;
+  gap:18px;
+  align-items:center;
+  padding:14px 16px;
+  border-bottom:1px solid var(--line);
+}
+.team-player-row:last-child{border-bottom:0}
+.team-player-row:hover{background:#fbf9fd}
+.team-player-main{display:flex;align-items:center;gap:12px;min-width:0}
+.team-player-info{min-width:0}
+.team-player-info h3{
+  margin:0 0 4px;
+  color:var(--violet);
+  font-size:15px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.team-player-strengths{display:flex;flex-wrap:wrap;gap:5px}
+.team-player-actions{display:flex;gap:8px;justify-content:flex-end}
+.team-player-actions .secondary{min-width:115px}
+.team-players-empty{
+  padding:38px 20px;
+  text-align:center;
+  color:#817b89;
+  font-weight:700;
+}
+@media(max-width:900px){
+  .team-player-row{grid-template-columns:1fr;gap:10px}
+  .team-player-actions{justify-content:stretch}
+  .team-player-actions .secondary{flex:1}
+}
+@media(max-width:640px){
+  .team-players-toolbar{grid-template-columns:1fr}
+}
