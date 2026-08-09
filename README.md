@@ -444,3 +444,18 @@ Mappatura:
 
 La fascia laterale può avere qualunque colore e non influenza la lettura.
 Punti forza/deboli mantengono il sistema avanzato a rilevamento colore + OCR riga per riga.
+
+
+## V38 - Precision Reader 2048×1152
+
+Il layout allegato diventa il formato standard delle card.
+
+Migliorie:
+- ROI molto più strette e fisse per ogni campo.
+- OCR multi-pass e voto tra letture per nome, cognome, squadra, numero, ruolo e altezza.
+- Altezza accettata solo se plausibile (155–210 cm).
+- Piede letto esclusivamente dal colore del valore: blu/azzurro = DX, giallo/oro = SX.
+- Bandiera isolata dal colore della fascia laterale prima della classificazione.
+- Età/anno con controllo di plausibilità.
+- Punti di forza/deboli letti riga per riga usando prima la maschera cromatica verde/rossa.
+- Nessun default automatico ATTACCANTE/DX in caso di lettura incerta.

@@ -2399,19 +2399,21 @@ function detectFlagNationalityInRegion(img,r){
 */
 
 const CARD_V37={
-  first:      {x:.020,y:.347,w:.210,h:.060},
-  surname:    {x:.012,y:.395,w:.225,h:.075},
-  team:       {x:.035,y:.452,w:.185,h:.055},
-  number:     {x:.020,y:.505,w:.210,h:.205},
-  flag:       {x:.070,y:.735,w:.105,h:.175},
+  // V38: regioni strette ricavate dal layout standard 2048×1152.
+  // Evitano foto, campo, watermark, etichette e fascia squadra.
+  first:      {x:.070,y:.365,w:.165,h:.050},
+  surname:    {x:.045,y:.405,w:.195,h:.065},
+  team:       {x:.070,y:.463,w:.165,h:.045},
+  number:     {x:.035,y:.535,w:.190,h:.170},
+  flag:       {x:.070,y:.745,w:.105,h:.165},
 
-  role:       {x:.365,y:.015,w:.290,h:.080},
-  height:     {x:.785,y:.045,w:.190,h:.180},
-  foot:       {x:.790,y:.215,w:.185,h:.220},
-  ageYear:    {x:.785,y:.430,w:.195,h:.200},
+  role:       {x:.385,y:.025,w:.250,h:.070},
+  height:     {x:.790,y:.040,w:.180,h:.145},
+  foot:       {x:.805,y:.225,w:.150,h:.175},
+  ageYear:    {x:.800,y:.425,w:.165,h:.175},
 
-  strengths:  {x:.360,y:.600,w:.500,h:.180,mode:'green'},
-  weaknesses: {x:.375,y:.775,w:.470,h:.150,mode:'red'}
+  strengths:  {x:.365,y:.625,w:.490,h:.165,mode:'green'},
+  weaknesses: {x:.390,y:.790,w:.450,h:.150,mode:'red'}
 };
 
 async function readV37Alpha(worker,img,r,kind='name'){
@@ -2628,6 +2630,241 @@ function v37CardStructureScore(img){
   return ratio>1.68 && ratio<1.86;
 }
 
+
+/* ===== V38 PRECISION ENGINE =====
+   Tutte le card future usano questo layout.
+   Quindi niente più euristiche "elastiche" tra layout diversi:
+   ogni campo viene letto nella propria zona fissa con più passate OCR e voto.
+*/
+
+function v38NormalizeLetters(s){
+  return upper(String(s||''))
+    .replace(/[|[\]{}<>_=~^]/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+function v38BestAlpha(candidates,kind='name'){
+  const cleaned=candidates
+    .map(v38NormalizeLetters)
+    .filter(Boolean)
+    .filter(s=>/[A-ZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚ]/.test(s));
+
+  if(!cleaned.length)return '';
+
+  const freq=new Map();
+  for(const s of cleaned){
+    const key=s.replace(/\s+/g,' ').trim();
+    freq.set(key,(freq.get(key)||0)+1);
+  }
+
+  cleaned.sort((a,b)=>{
+    const fa=freq.get(a)||0, fb=freq.get(b)||0;
+    if(fb!==fa)return fb-fa;
+    return alphaQuality(b,kind)-alphaQuality(a,kind);
+  });
+
+  return cleanFieldText(cleaned[0]);
+}
+
+async function readV38Alpha(worker,img,r,kind='name'){
+  const reads=[];
+  const variants=adaptiveTextCanvases(img,r,5.2);
+
+  for(const c of variants){
+    for(const psm of ['7','6','11']){
+      reads.push(await recognizeCanvas(worker,c,{
+        psm,
+        whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚÂÊÔÃÕ -.'"
+      }));
+    }
+  }
+  return v38BestAlpha(reads,kind);
+}
+
+async function readV38Number(worker,img){
+  const reads=[];
+  for(const c of adaptiveTextCanvases(img,CARD_V37.number,5.0)){
+    for(const psm of ['7','6','11','13']){
+      reads.push(await recognizeCanvas(worker,c,{psm,whitelist:'0123456789'}));
+    }
+  }
+
+  const votes=new Map();
+  for(const raw of reads){
+    const matches=String(raw||'').match(/\d{1,2}/g)||[];
+    for(const x of matches){
+      const n=Number(x);
+      if(n>=1&&n<=99){
+        const key=String(n);
+        votes.set(key,(votes.get(key)||0)+(x.length===2?3:2));
+      }
+    }
+  }
+  return votes.size ? [...votes].sort((a,b)=>b[1]-a[1])[0][0] : '';
+}
+
+async function readV38Role(worker,img){
+  const votes=new Map();
+  for(const c of adaptiveTextCanvases(img,CARD_V37.role,5.0)){
+    for(const psm of ['7','6','11']){
+      const raw=await recognizeCanvas(worker,c,{
+        psm,
+        whitelist:'ABCDEFGHIJKLMNOPQRSTUVWXYZ '
+      });
+      const role=normalizeCardRole(raw);
+      if(role)votes.set(role,(votes.get(role)||0)+1);
+    }
+  }
+  return votes.size ? [...votes].sort((a,b)=>b[1]-a[1])[0][0] : '';
+}
+
+async function readV38Height(worker,img){
+  const votes=new Map();
+
+  for(const c of adaptiveTextCanvases(img,CARD_V37.height,5.2)){
+    for(const psm of ['6','7','11','13']){
+      const raw=await recognizeCanvas(worker,c,{
+        psm,
+        whitelist:'0123456789 CMcm'
+      });
+
+      for(const h of extractHeightCandidate(raw)){
+        const n=Number(h);
+        if(n>=155&&n<=210){
+          votes.set(String(n),(votes.get(String(n))||0)+2);
+        }
+      }
+
+      // seconda rete di sicurezza: cerca direttamente un valore 1xx/2xx plausibile
+      for(const m of String(raw||'').match(/\b(?:1[5-9]\d|20\d|210)\b/g)||[]){
+        const n=Number(m);
+        if(n>=155&&n<=210){
+          votes.set(String(n),(votes.get(String(n))||0)+1);
+        }
+      }
+    }
+  }
+
+  return votes.size ? [...votes].sort((a,b)=>b[1]-a[1])[0][0] : '';
+}
+
+function detectV38Foot(img){
+  // Solo il valore colorato DX/SX. Escludiamo titolo PIEDE e resto della card.
+  const r={x:.820,y:.270,w:.120,h:.105};
+  const sx=Math.round(img.naturalWidth*r.x), sy=Math.round(img.naturalHeight*r.y);
+  const sw=Math.round(img.naturalWidth*r.w), sh=Math.round(img.naturalHeight*r.h);
+
+  const c=document.createElement('canvas');
+  c.width=sw;c.height=sh;
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
+  const d=ctx.getImageData(0,0,sw,sh).data;
+
+  let blue=0,yellow=0;
+  for(let i=0;i<d.length;i+=4){
+    const R=d[i],G=d[i+1],B=d[i+2];
+
+    // blu/azzurro saturo usato per DX
+    if(B>125 && B>R*1.22 && B>G*1.03 && B-R>45) blue++;
+
+    // giallo/oro saturo usato per SX
+    if(R>160 && G>115 && B<125 && R-B>55 && G-B>30) yellow++;
+  }
+
+  const evidence=Math.max(60,Math.round(sw*sh*.0012));
+  if(blue>=evidence && blue>yellow*1.35)return 'DX';
+  if(yellow>=evidence && yellow>blue*1.35)return 'SX';
+  return '';
+}
+
+async function readV38BirthYear(worker,img){
+  const votes=new Map();
+  const ages=[];
+
+  for(const c of adaptiveTextCanvases(img,CARD_V37.ageYear,5.0)){
+    for(const psm of ['6','7','11']){
+      const raw=await recognizeCanvas(worker,c,{psm,whitelist:'0123456789()'});
+      for(const y of extractYearCandidates(raw)){
+        const n=Number(y);
+        if(n>=1980&&n<=2015)votes.set(String(n),(votes.get(String(n))||0)+3);
+      }
+      ages.push(...extractAgeCandidates(raw).filter(a=>a>=15&&a<=45));
+    }
+  }
+
+  if(votes.size)return [...votes].sort((a,b)=>b[1]-a[1])[0][0];
+
+  if(ages.length){
+    ages.sort((a,b)=>a-b);
+    const age=ages[Math.floor(ages.length/2)];
+    const y=expectedBirthYearFromAge(age);
+    return (y>=1980&&y<=2015)?String(y):'';
+  }
+  return '';
+}
+
+function detectV38Nationality(img){
+  /*
+    La bandiera è sempre nello stesso cerchio.
+    Il classificatore riceve SOLO la bandiera, non la fascia laterale.
+  */
+  const r={x:.075,y:.755,w:.095,h:.150};
+  const sx=Math.round(img.naturalWidth*r.x), sy=Math.round(img.naturalHeight*r.y);
+  const sw=Math.round(img.naturalWidth*r.w), sh=Math.round(img.naturalHeight*r.h);
+
+  const virtual=document.createElement('canvas');
+  virtual.width=img.naturalWidth;
+  virtual.height=img.naturalHeight;
+  const ctx=virtual.getContext('2d');
+
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,virtual.width,virtual.height);
+
+  // Posizione attesa dal classificatore storico, ma con crop V38 pulito.
+  const tx=Math.round(virtual.width*.078);
+  const ty=Math.round(virtual.height*.742);
+  const tw=Math.round(virtual.width*.090);
+  const th=Math.round(virtual.height*.166);
+  ctx.drawImage(img,sx,sy,sw,sh,tx,ty,tw,th);
+
+  return resolveNationality(detectFlagNationalityV32(virtual));
+}
+
+async function readV38ColoredBlock(worker,img,r,mode){
+  const detected=findColoredTextRegion(img,r,mode);
+  const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚ 0123456789,'’-/ ";
+
+  const lines=[];
+  for(const lineRegion of detected.lineBands.slice(0,6)){
+    const candidates=[];
+    for(const strictness of ['original','soft','hard','gray']){
+      const c=cropRegionVariant(img,lineRegion,5.0,strictness);
+      for(const psm of ['7','13']){
+        candidates.push(await recognizeCanvas(worker,c,{psm,whitelist}));
+      }
+    }
+
+    candidates
+      .map(normalizeOcrLine)
+      .filter(x=>x.length>1)
+      .sort((a,b)=>lineQuality(b)-lineQuality(a));
+
+    const best=candidates
+      .map(normalizeOcrLine)
+      .filter(x=>x.length>1)
+      .sort((a,b)=>lineQuality(b)-lineQuality(a))[0];
+
+    if(best)lines.push(best);
+  }
+
+  if(lines.length)return lines;
+
+  // fallback intero blocco
+  const raw=await readColoredLinesSmart(worker,img,r,mode);
+  return splitOcrLines(raw);
+}
+
 async function readCardWithWorker(file,worker,index=0,total=1){
   const img=await loadImage(file);
 
@@ -2647,52 +2884,44 @@ async function readCardWithWorker(file,worker,index=0,total=1){
   let step=0;
 
   progress('NOME',step++,steps);
-  const first=await readV37Alpha(worker,img,CARD_V37.first,'name');
+  const first=await readV38Alpha(worker,img,CARD_V37.first,'name');
 
   progress('COGNOME',step++,steps);
-  const last=await readV37Alpha(worker,img,CARD_V37.surname,'name');
+  const last=await readV38Alpha(worker,img,CARD_V37.surname,'name');
 
   progress('SQUADRA',step++,steps);
-  const team=await readV37Alpha(worker,img,CARD_V37.team,'team');
+  const team=await readV38Alpha(worker,img,CARD_V37.team,'team');
 
   progress('NUMERO',step++,steps);
-  const number=await readV37Number(worker,img);
+  const number=await readV38Number(worker,img);
 
   progress('RUOLO',step++,steps);
-  const role=await readV37Role(worker,img);
+  const role=await readV38Role(worker,img);
 
   progress('ALTEZZA',step++,steps);
-  const height=await readV37Height(worker,img);
+  const height=await readV38Height(worker,img);
 
   progress('PIEDE',step++,steps);
-  const foot=detectV37Foot(img);
+  const foot=detectV38Foot(img);
 
   progress('ETÀ / ANNO',step++,steps);
-  const year=await readV37AgeYear(worker,img);
+  const year=await readV38BirthYear(worker,img);
 
   progress('NAZIONALITÀ',step++,steps);
-  const nationality=detectV37Nationality(img);
+  const nationality=detectV38Nationality(img);
 
   progress('PUNTI DI FORZA',step++,steps);
-  const strengths=await readV37ColoredBlock(worker,img,CARD_V37.strengths,'green');
+  const strengths=await readV38ColoredBlock(worker,img,CARD_V37.strengths,'green');
 
   progress('PUNTI DEBOLI',step++,steps);
-  const weaknesses=await readV37ColoredBlock(worker,img,CARD_V37.weaknesses,'red');
+  const weaknesses=await readV38ColoredBlock(worker,img,CARD_V37.weaknesses,'red');
 
   return{
-    first,
-    last,
-    team,
-    number,
-    role,
+    first,last,team,number,role,
     position:'',
-    height,
-    foot,
-    year,
-    nationality,
-    strengths,
-    weaknesses,
-    card_type:'V37'
+    height,foot,year,nationality,
+    strengths,weaknesses,
+    card_type:'V38_FIXED_2048x1152'
   };
 }
 
