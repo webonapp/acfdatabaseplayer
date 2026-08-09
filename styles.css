@@ -372,3 +372,13 @@ body.auth-locked{overflow:hidden}
 @media(max-width:640px){
   .team-players-toolbar{grid-template-columns:1fr}
 }
+
+.card-tab{position:relative;padding-right:34px!important}
+.card-tab-remove{
+  position:absolute;right:7px;top:50%;transform:translateY(-50%);
+  width:20px;height:20px;border-radius:50%;
+  display:grid;place-items:center;
+  font-size:16px;font-weight:900;line-height:1;
+  color:#756b7c;background:rgba(255,255,255,.78);
+}
+.card-tab-remove:hover{background:#b42318;color:#fff}

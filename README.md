@@ -473,3 +473,9 @@ Migliorie:
 - Numero maglia migliorato, incluso caso 8 vs 3.
 - Punti di forza/deboli con margini orizzontali più larghi per non perdere prime/ultime lettere.
 - Ridotti i passaggi OCR ridondanti per aumentare la velocità.
+
+## V41
+- Punti forza/deboli: box più largo e lettura prioritaria dell'intero blocco per non troncare prime/ultime lettere.
+- Numero: crop più ampio, trattamento specifico del caso 8/3.
+- Batch: un solo worker OCR condiviso, meno aggiornamenti UI e meno passaggi OCR.
+- X su ogni tab giocatore per rimuovere una card dal batch dopo la lettura.

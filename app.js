@@ -1112,18 +1112,28 @@ function renderCardTabs(){
       <span class="card-tab-number">${i+1}</span>
       <span class="card-tab-name">${esc(label)}</span>
       <span class="card-tab-state">${symbol}</span>
+      <span class="card-tab-remove" data-remove-card="${i}" title="RIMUOVI GIOCATORE">×</span>
     </button>`;
   }).join('');
 
   document.querySelectorAll('[data-card-tab]').forEach(tab=>{
-    tab.onclick=()=>{
+    tab.onclick=e=>{
+      if(e.target.closest('[data-remove-card]'))return;
       saveCurrentBatchReview();
       const i=Number(tab.dataset.cardTab);
       if(batchResults[i]?.parsed){
         currentBatchIndex=i;
+        selectedFile=selectedFiles[i];
         fillImport(batchResults[i].parsed);
         renderCardTabs();
       }
+    };
+  });
+
+  document.querySelectorAll('[data-remove-card]').forEach(btn=>{
+    btn.onclick=e=>{
+      e.stopPropagation();
+      removeBatchCard(Number(btn.dataset.removeCard));
     };
   });
 }
@@ -2412,8 +2422,8 @@ const CARD_V37={
   foot:       {x:.805,y:.225,w:.150,h:.175},
   ageYear:    {x:.800,y:.425,w:.165,h:.175},
 
-  strengths:  {x:.365,y:.625,w:.490,h:.165,mode:'green'},
-  weaknesses: {x:.390,y:.790,w:.450,h:.150,mode:'red'}
+  strengths:  {x:.255,y:.585,w:.635,h:.220,mode:'green'},
+  weaknesses: {x:.255,y:.745,w:.635,h:.205,mode:'red'}
 };
 
 async function readV37Alpha(worker,img,r,kind='name'){
@@ -2683,36 +2693,27 @@ async function readV38Alpha(worker,img,r,kind='name'){
 }
 
 async function readV38Number(worker,img){
-  const r={x:.018,y:.500,w:.220,h:.215};
+  const r={x:.010,y:.485,w:.235,h:.235};
   const votes=new Map();
 
-  for(const c of adaptiveTextCanvases(img,r,5.2)){
-    for(const psm of ['7','13','6']){
+  for(const variant of ['gray','original']){
+    const c=cropRegionVariant(img,r,6.2,variant);
+    for(const psm of ['13','7']){
       const raw=await recognizeCanvas(worker,c,{psm,whitelist:'0123456789'});
-      const clean=String(raw||'').replace(/\D/g,'');
-
-      if(clean.length>=1 && clean.length<=2){
-        const n=Number(clean);
+      const val=String(raw||'').replace(/\D/g,'');
+      if(val.length>=1&&val.length<=2){
+        const n=Number(val);
         if(n>=1&&n<=99){
-          const bonus=(clean.length===2?6:4)+(psm==='13'?2:0)+(psm==='7'?1:0);
-          votes.set(String(n),(votes.get(String(n))||0)+bonus);
+          votes.set(String(n),(votes.get(String(n))||0)+(val.length===2?8:5)+(psm==='13'?2:0));
         }
-      }
-
-      for(const tok of String(raw||'').match(/\d{1,2}/g)||[]){
-        const n=Number(tok);
-        if(n>=1&&n<=99)votes.set(String(n),(votes.get(String(n))||0)+(tok.length===2?3:1));
       }
     }
   }
 
   if(!votes.size)return '';
-  const ranked=[...votes.entries()].sort((a,b)=>b[1]-a[1]);
-
   const v8=votes.get('8')||0, v3=votes.get('3')||0;
-  if(v8>=8 && v8>=v3*.85)return '8';
-
-  return ranked[0][0];
+  if(v8>=7 && v8>=v3*.7)return '8';
+  return [...votes.entries()].sort((a,b)=>b[1]-a[1])[0][0];
 }
 
 async function readV38Role(worker,img){
@@ -2881,60 +2882,52 @@ function detectV38Nationality(img){
 }
 
 async function readV38ColoredBlock(worker,img,r,mode){
-  const padded=expandedRegion(r,.055,.018);
+  const padded=expandedRegion(r,.080,.022);
   padded.mode=mode;
-
-  const detected=findColoredTextRegion(img,padded,mode);
   const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚ 0123456789,'’-/ ";
+
+  // Fast first pass on the whole block.
+  const cWhole=cropRegionVariant(img,padded,4.6,'original');
+  const rawWhole=await recognizeCanvas(worker,cWhole,{psm:'6',whitelist});
+  let whole=splitOcrLines(rawWhole).map(normalizeOcrLine).filter(x=>x.length>2);
+
+  // One repair pass only when necessary.
+  const suspicious=whole.length===0 || whole.some(l=>l.length<5 || /^[A-ZÀ-ÖØ-Ý]\s/.test(l));
+  if(!suspicious)return whole;
+
+  const cSoft=cropRegionVariant(img,padded,4.6,'soft');
+  const rawSoft=await recognizeCanvas(worker,cSoft,{psm:'6',whitelist});
+  const soft=splitOcrLines(rawSoft).map(normalizeOcrLine).filter(x=>x.length>2);
+
+  if(whole.length && soft.length){
+    const merged=[];
+    const n=Math.max(whole.length,soft.length);
+    for(let i=0;i<n;i++){
+      const a=whole[i]||'', b=soft[i]||'';
+      if(!a){merged.push(b);continue}
+      if(!b){merged.push(a);continue}
+      const A=norm(a).replace(/\s/g,''), B=norm(b).replace(/\s/g,'');
+      if(B.length>A.length && (B.includes(A)||B.slice(1)===A||B.slice(0,-1)===A))merged.push(b);
+      else if(A.length>B.length && (A.includes(B)||A.slice(1)===B||A.slice(0,-1)===B))merged.push(a);
+      else merged.push(lineQuality(b)>lineQuality(a)?b:a);
+    }
+    return merged.filter(Boolean);
+  }
+
+  if(soft.length)return soft;
+
+  // Last fallback: line segmentation, one OCR call per line.
+  const detected=findColoredTextRegion(img,padded,mode);
+  const bands=(detected.lineBands?.length?detected.lineBands:[detected.region]).slice(0,8);
   const out=[];
-
-  const bands=(detected.lineBands?.length ? detected.lineBands : [detected.region]).slice(0,8);
-
-  for(const baseLine of bands){
-    const lineRegion=expandedRegion(baseLine,.025,.006);
-    lineRegion.mode=mode;
-
-    const candidates=[];
-    for(const variant of ['original','soft']){
-      const c=cropRegionVariant(img,lineRegion,4.8,variant);
-      for(const psm of ['7','13']){
-        const raw=await recognizeCanvas(worker,c,{psm,whitelist});
-        const cleaned=normalizeOcrLine(raw);
-        if(cleaned.length>1)candidates.push(cleaned);
-      }
-    }
-
-    if(!candidates.length)continue;
-
-    const freq=new Map();
-    for(const s of candidates)freq.set(s,(freq.get(s)||0)+1);
-
-    candidates.sort((a,b)=>{
-      const fd=(freq.get(b)||0)-(freq.get(a)||0);
-      return fd || lineQuality(b)-lineQuality(a) || b.length-a.length;
-    });
-
-    let best=candidates[0];
-
-    for(const alt of candidates.slice(1)){
-      const A=norm(alt).replace(/\s/g,'');
-      const B=norm(best).replace(/\s/g,'');
-      if(A.length>B.length && (A.includes(B) || A.slice(1)===B || A.slice(0,-1)===B)){
-        best=alt;
-      }
-    }
-
-    if(best)out.push(normalizeOcrLine(best));
+  for(const band of bands){
+    const rr=expandedRegion(band,.055,.008);
+    rr.mode=mode;
+    const c=cropRegionVariant(img,rr,4.8,'original');
+    const line=normalizeOcrLine(await recognizeCanvas(worker,c,{psm:'7',whitelist}));
+    if(line.length>2)out.push(line);
   }
-
-  const unique=[];
-  for(const line of out){
-    if(!unique.some(x=>norm(x)===norm(line)))unique.push(line);
-  }
-  if(unique.length)return unique;
-
-  const raw=await readColoredLinesSmart(worker,img,padded,mode);
-  return splitOcrLines(raw);
+  return out;
 }
 
 async function readCardWithWorker(file,worker,index=0,total=1){
@@ -3029,7 +3022,8 @@ async function processBatchCards(){
     worker=await Tesseract.createWorker('eng',1,{
       logger:m=>{
         if(m.status==='recognizing text' && $('progressText')){
-          $('progressText').textContent=`CARD ${Math.min(currentBatchIndex+1,total)}/${total} · OCR ${Math.round((m.progress||0)*100)}%`;
+          const pct=Math.round((m.progress||0)*100);
+          if(pct%20===0)$('progressText').textContent=`CARD ${Math.min(currentBatchIndex+1,total)}/${total} · OCR ${pct}%`;
         }
       }
     });
@@ -3047,9 +3041,6 @@ async function processBatchCards(){
       batchResults[i]={status:'processing',parsed:null};
       renderBatchQueue();
 
-      if($('progressText'))$('progressText').textContent=`CARD ${i+1}/${total} · PREPARAZIONE`;
-      if($('progressFill'))$('progressFill').style.width=`${Math.round((i/total)*100)}%`;
-
       try{
         const parsed=await readCardWithWorker(selectedFiles[i],worker,i,total);
         batchResults[i]={status:'done',parsed};
@@ -3063,25 +3054,24 @@ async function processBatchCards(){
       await new Promise(resolve=>setTimeout(resolve,0));
     }
 
-    if($('progressFill'))$('progressFill').style.width='100%';
-
     const first=batchResults.findIndex(x=>x?.parsed);
     if(first<0){
-      const details=batchResults.map((x,i)=>x?.error?`CARD ${i+1}: ${x.error}`:'').filter(Boolean).slice(0,3).join('\n');
-      alert('NON È STATO POSSIBILE LEGGERE LE CARD.'+(details?'\n\nDETTAGLIO:\n'+details:''));
+      alert('NON È STATO POSSIBILE LEGGERE LE CARD.');
       return;
     }
 
     currentBatchIndex=first;
+    selectedFile=selectedFiles[first];
     fillImport(batchResults[first].parsed);
     $('uploadStage')?.classList.add('hidden');
     $('importReview')?.classList.remove('hidden');
     renderCardTabs();
     renderBatchQueue();
 
+    if($('progressFill'))$('progressFill').style.width='100%';
     if($('progressText'))$('progressText').textContent=`COMPLETATO · ${success}/${total} CARD LETTE`;
-  } finally {
-    if(worker){ try{await worker.terminate()}catch(_){} }
+  }finally{
+    if(worker){try{await worker.terminate()}catch(_){}}
     if($('processCardBtn')){
       $('processCardBtn').disabled=false;
       $('processCardBtn').textContent=total>1?`ELABORA ${total} CARD`:'ELABORA CARD';
@@ -3241,6 +3231,34 @@ function fillImport(p){
   $('iWeaknesses').value=(p.weaknesses||[]).map(upper).join(', ');
 }
 
+
+
+window.removeBatchCard=function(index){
+  if(index<0||index>=selectedFiles.length)return;
+
+  selectedFiles.splice(index,1);
+  batchResults.splice(index,1);
+
+  if(!selectedFiles.length){
+    batchMode=false;
+    selectedFile=null;
+    currentBatchIndex=0;
+    closeModal('importModal');
+    return;
+  }
+
+  if(index<currentBatchIndex)currentBatchIndex--;
+  if(currentBatchIndex>=selectedFiles.length)currentBatchIndex=selectedFiles.length-1;
+
+  selectedFile=selectedFiles[currentBatchIndex];
+  batchMode=selectedFiles.length>1;
+
+  const current=batchResults[currentBatchIndex]?.parsed;
+  if(current)fillImport(current);
+
+  renderCardTabs();
+  renderBatchQueue();
+};
 
 async function archiveImportedPlayer(){
   const btn=$('archivePlayerBtn');
