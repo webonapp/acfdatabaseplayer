@@ -421,3 +421,26 @@ NAZIONALITÀ
 - Ricerca interna per nome, ruolo, nazionalità e caratteristiche.
 - Ordinamento per alfabetico, età, piede, ruolo e nazionalità.
 - MODIFICA ed ELIMINA disponibili direttamente dalla lista.
+
+
+## V37 - Nuovo lettore card
+
+Nuovo layout 2048×1149 integrato come lettore principale.
+
+Mappatura:
+- NOME: fascia sinistra sotto foto
+- COGNOME: riga grande sotto nome
+- SQUADRA: sotto cognome
+- NUMERO: grande sotto squadra
+- NAZIONALITÀ: bandiera circolare in basso a sinistra
+- RUOLO: titolo in alto al centro
+- ALTEZZA: box alto a destra
+- PIEDE: box destro centrale
+  - BLU/AZZURRO = DX
+  - GIALLO/ORO = SX
+- ETÀ/ANNO: box destro inferiore
+- PUNTI DI FORZA: testo verde
+- PUNTI DEBOLI: testo rosso
+
+La fascia laterale può avere qualunque colore e non influenza la lettura.
+Punti forza/deboli mantengono il sistema avanzato a rilevamento colore + OCR riga per riga.
