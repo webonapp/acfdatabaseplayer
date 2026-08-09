@@ -479,3 +479,10 @@ Migliorie:
 - Numero: crop più ampio, trattamento specifico del caso 8/3.
 - Batch: un solo worker OCR condiviso, meno aggiornamenti UI e meno passaggi OCR.
 - X su ogni tab giocatore per rimuovere una card dal batch dopo la lettura.
+
+## V42 - Color Mask Reader
+- Punti forza/deboli: OCR eseguito solo sui pixel verdi/rossi, tutto il resto viene cancellato prima della lettura.
+- Maschera con dilatazione 1px per conservare tratti sottili e prime/ultime lettere.
+- Bounding box calcolato sul testo reale e margini applicati solo dopo il filtraggio, quindi niente contaminazioni.
+- Lettura blocco + righe singole con confronto finale.
+- Mantiene X per rimuovere una card dal batch e batch condiviso V41.

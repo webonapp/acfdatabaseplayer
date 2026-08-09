@@ -2881,53 +2881,226 @@ function detectV38Nationality(img){
   return resolveNationality(detected);
 }
 
+
+function buildV42ColorMask(img,r,mode){
+  /*
+    V42:
+    crea una nuova immagine contenente SOLO le lettere verdi/rosse.
+    Tutto il resto viene cancellato prima dell'OCR.
+    Questo elimina numeri, watermark, linee del campo e testo vicino.
+  */
+  const x0=Math.max(0,Math.round(img.naturalWidth*r.x));
+  const y0=Math.max(0,Math.round(img.naturalHeight*r.y));
+  const w=Math.min(img.naturalWidth-x0,Math.round(img.naturalWidth*r.w));
+  const h=Math.min(img.naturalHeight-y0,Math.round(img.naturalHeight*r.h));
+
+  const src=document.createElement('canvas');
+  src.width=w;
+  src.height=h;
+  const sctx=src.getContext('2d',{willReadFrequently:true});
+  sctx.drawImage(img,x0,y0,w,h,0,0,w,h);
+  const im=sctx.getImageData(0,0,w,h);
+  const d=im.data;
+
+  const mask=new Uint8Array(w*h);
+  let minX=w,minY=h,maxX=-1,maxY=-1,count=0;
+
+  const target=(R,G,B)=>{
+    if(mode==='green'){
+      // permissivo abbastanza da conservare antialiasing e prime/ultime lettere
+      return G>72 && G>R*1.015 && G>B*.94 && (G-R)>2;
+    }
+    // red
+    return R>88 && R>G*1.015 && R>B*1.005 && (R-G)>3;
+  };
+
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const i=(y*w+x)*4;
+      const on=target(d[i],d[i+1],d[i+2]);
+      if(on){
+        mask[y*w+x]=1;
+        minX=Math.min(minX,x); maxX=Math.max(maxX,x);
+        minY=Math.min(minY,y); maxY=Math.max(maxY,y);
+        count++;
+      }
+    }
+  }
+
+  if(count<25 || maxX<0){
+    return {canvas:null,lineRegions:[]};
+  }
+
+  // Dilatazione 1px: ricostruisce piccoli tratti che la soglia colore può spezzare.
+  const dilated=new Uint8Array(mask);
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      if(mask[y*w+x]){
+        for(let yy=-1;yy<=1;yy++){
+          for(let xx=-1;xx<=1;xx++){
+            dilated[(y+yy)*w+(x+xx)]=1;
+          }
+        }
+      }
+    }
+  }
+
+  // Margine ampio, ma sul canvas già filtrato: non può introdurre testo estraneo.
+  const padX=Math.max(18,Math.round(w*.035));
+  const padY=Math.max(10,Math.round(h*.035));
+  minX=Math.max(0,minX-padX);
+  maxX=Math.min(w-1,maxX+padX);
+  minY=Math.max(0,minY-padY);
+  maxY=Math.min(h-1,maxY+padY);
+
+  const cw=maxX-minX+1, ch=maxY-minY+1;
+  const out=document.createElement('canvas');
+  out.width=Math.max(1,cw*5);
+  out.height=Math.max(1,ch*5);
+  const octx=out.getContext('2d',{willReadFrequently:true});
+  octx.fillStyle='#fff';
+  octx.fillRect(0,0,out.width,out.height);
+
+  // disegna la maschera in nero su bianco, scalata senza blur
+  const small=document.createElement('canvas');
+  small.width=cw;
+  small.height=ch;
+  const mctx=small.getContext('2d',{willReadFrequently:true});
+  const oi=mctx.createImageData(cw,ch);
+  for(let y=0;y<ch;y++){
+    for(let x=0;x<cw;x++){
+      const srcX=minX+x, srcY=minY+y;
+      const on=dilated[srcY*w+srcX];
+      const j=(y*cw+x)*4;
+      const v=on?0:255;
+      oi.data[j]=oi.data[j+1]=oi.data[j+2]=v;
+      oi.data[j+3]=255;
+    }
+  }
+  mctx.putImageData(oi,0,0);
+  octx.imageSmoothingEnabled=false;
+  octx.drawImage(small,0,0,out.width,out.height);
+
+  // Trova righe direttamente sulla maschera binaria.
+  const rowInk=new Array(ch).fill(0);
+  for(let y=0;y<ch;y++){
+    let c=0;
+    for(let x=0;x<cw;x++){
+      if(dilated[(minY+y)*w+(minX+x)])c++;
+    }
+    rowInk[y]=c;
+  }
+
+  const threshold=Math.max(2,Math.round(cw*.004));
+  const bands=[];
+  let start=null;
+  for(let y=0;y<ch;y++){
+    const active=rowInk[y]>=threshold;
+    if(active && start===null)start=y;
+    if((!active || y===ch-1) && start!==null){
+      const end=active && y===ch-1 ? y : y-1;
+      if(end-start>=2)bands.push([start,end]);
+      start=null;
+    }
+  }
+
+  // unisci frammenti molto vicini della stessa riga
+  const merged=[];
+  for(const b of bands){
+    const last=merged[merged.length-1];
+    if(last && b[0]-last[1] <= Math.max(5,Math.round(ch*.025))){
+      last[1]=b[1];
+    }else{
+      merged.push(b.slice());
+    }
+  }
+
+  const lineRegions=merged.map(([a,b])=>{
+    const linePad=Math.max(4,Math.round(ch*.02));
+    const ya=Math.max(0,a-linePad);
+    const yb=Math.min(ch-1,b+linePad);
+
+    const lc=document.createElement('canvas');
+    lc.width=out.width;
+    lc.height=(yb-ya+1)*5;
+    const lctx=lc.getContext('2d');
+    lctx.fillStyle='#fff';
+    lctx.fillRect(0,0,lc.width,lc.height);
+    lctx.imageSmoothingEnabled=false;
+    lctx.drawImage(
+      small,
+      0,ya,cw,yb-ya+1,
+      0,0,lc.width,lc.height
+    );
+    return lc;
+  });
+
+  return {canvas:out,lineRegions};
+}
+
 async function readV38ColoredBlock(worker,img,r,mode){
-  const padded=expandedRegion(r,.080,.022);
-  padded.mode=mode;
+  /*
+    V42:
+    OCR esclusivamente sulla maschera del colore target.
+    Niente più sporcizia ai lati e niente più lettere iniziali/finali tagliate.
+  */
+  const broad=expandedRegion(r,.095,.030);
+  broad.mode=mode;
+
+  const masked=buildV42ColorMask(img,broad,mode);
   const whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÓÙÑÇÜÖÄÁÍÚ 0123456789,'’-/ ";
 
-  // Fast first pass on the whole block.
-  const cWhole=cropRegionVariant(img,padded,4.6,'original');
-  const rawWhole=await recognizeCanvas(worker,cWhole,{psm:'6',whitelist});
-  let whole=splitOcrLines(rawWhole).map(normalizeOcrLine).filter(x=>x.length>2);
+  if(!masked.canvas)return [];
 
-  // One repair pass only when necessary.
-  const suspicious=whole.length===0 || whole.some(l=>l.length<5 || /^[A-ZÀ-ÖØ-Ý]\s/.test(l));
-  if(!suspicious)return whole;
+  // Prima: OCR dell'intero blocco già completamente pulito.
+  const raw=await recognizeCanvas(worker,masked.canvas,{psm:'6',whitelist});
+  const whole=splitOcrLines(raw)
+    .map(normalizeOcrLine)
+    .filter(x=>x.length>2);
 
-  const cSoft=cropRegionVariant(img,padded,4.6,'soft');
-  const rawSoft=await recognizeCanvas(worker,cSoft,{psm:'6',whitelist});
-  const soft=splitOcrLines(rawSoft).map(normalizeOcrLine).filter(x=>x.length>2);
+  // Poi leggiamo le singole righe, ma con una sola chiamata per riga.
+  const perLine=[];
+  for(const lineCanvas of masked.lineRegions.slice(0,8)){
+    const line=normalizeOcrLine(
+      await recognizeCanvas(worker,lineCanvas,{psm:'7',whitelist})
+    );
+    if(line.length>2)perLine.push(line);
+  }
 
-  if(whole.length && soft.length){
-    const merged=[];
-    const n=Math.max(whole.length,soft.length);
-    for(let i=0;i<n;i++){
-      const a=whole[i]||'', b=soft[i]||'';
-      if(!a){merged.push(b);continue}
-      if(!b){merged.push(a);continue}
-      const A=norm(a).replace(/\s/g,''), B=norm(b).replace(/\s/g,'');
-      if(B.length>A.length && (B.includes(A)||B.slice(1)===A||B.slice(0,-1)===A))merged.push(b);
-      else if(A.length>B.length && (A.includes(B)||A.slice(1)===B||A.slice(0,-1)===B))merged.push(a);
-      else merged.push(lineQuality(b)>lineQuality(a)?b:a);
+  if(!perLine.length)return whole;
+  if(!whole.length)return perLine;
+
+  // Confronto riga per riga: preferisci quella che conserva più lettere.
+  const n=Math.max(whole.length,perLine.length);
+  const merged=[];
+
+  for(let i=0;i<n;i++){
+    const a=whole[i]||'';
+    const b=perLine[i]||'';
+
+    if(!a){merged.push(b);continue}
+    if(!b){merged.push(a);continue}
+
+    const A=norm(a).replace(/\s/g,'');
+    const B=norm(b).replace(/\s/g,'');
+
+    if(B.length>A.length && (B.includes(A)||B.slice(1)===A||B.slice(0,-1)===A)){
+      merged.push(b);
+    }else if(A.length>B.length && (A.includes(B)||A.slice(1)===B||A.slice(0,-1)===B)){
+      merged.push(a);
+    }else{
+      // più lettere alfabetiche = lettura preferita
+      const la=(a.match(/[A-ZÀ-ÖØ-Ý]/g)||[]).length;
+      const lb=(b.match(/[A-ZÀ-ÖØ-Ý]/g)||[]).length;
+      merged.push(lb>la?b:a);
     }
-    return merged.filter(Boolean);
   }
 
-  if(soft.length)return soft;
-
-  // Last fallback: line segmentation, one OCR call per line.
-  const detected=findColoredTextRegion(img,padded,mode);
-  const bands=(detected.lineBands?.length?detected.lineBands:[detected.region]).slice(0,8);
-  const out=[];
-  for(const band of bands){
-    const rr=expandedRegion(band,.055,.008);
-    rr.mode=mode;
-    const c=cropRegionVariant(img,rr,4.8,'original');
-    const line=normalizeOcrLine(await recognizeCanvas(worker,c,{psm:'7',whitelist}));
-    if(line.length>2)out.push(line);
+  const unique=[];
+  for(const line of merged.filter(Boolean)){
+    if(!unique.some(x=>norm(x)===norm(line)))unique.push(line);
   }
-  return out;
+  return unique;
 }
 
 async function readCardWithWorker(file,worker,index=0,total=1){
@@ -3023,7 +3196,7 @@ async function processBatchCards(){
       logger:m=>{
         if(m.status==='recognizing text' && $('progressText')){
           const pct=Math.round((m.progress||0)*100);
-          if(pct%20===0)$('progressText').textContent=`CARD ${Math.min(currentBatchIndex+1,total)}/${total} · OCR ${pct}%`;
+          if(pct%25===0)$('progressText').textContent=`CARD ${Math.min(currentBatchIndex+1,total)}/${total} · OCR ${pct}%`;
         }
       }
     });
